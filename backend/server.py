@@ -13,6 +13,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "trading.db")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 
+# Auto-load backend/.env if present
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+if os.path.exists(ENV_PATH):
+    try:
+        with open(ENV_PATH, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ[key.strip()] = val.strip().strip('"').strip("'")
+        print("Successfully loaded environment variables from backend/.env")
+    except Exception as e:
+        print(f"Notice: Could not load .env file: {e}")
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
