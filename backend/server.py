@@ -657,7 +657,7 @@ AGENT_ANALYSIS_CACHE = {}
 def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI Agent."):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return None
+        return None, None, None
     
     models = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-pro-latest"]
     for m in models:
@@ -668,35 +668,54 @@ def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI
             "generationConfig": {"responseMimeType": "application/json"}
         }
         try:
+            st_time = time.time()
             req = urllib.request.Request(
                 url,
                 data=json.dumps(payload).encode('utf-8'),
                 headers={'Content-Type': 'application/json'}
             )
             res = urllib.request.urlopen(req, timeout=4)
+            lat = round((time.time() - st_time) * 1000, 1)
             data = json.loads(res.read().decode('utf-8'))
             text = data["candidates"][0]["content"]["parts"][0]["text"]
-            return json.loads(text)
+            return json.loads(text), m, lat
         except Exception as e:
             print(f"Gemini API model {m} notice: {e}")
-    return None
+    return None, None, None
 
 # --- MULTI-AGENT SYNTHESIS WITH RISK MANAGER VETO POWER ---
-def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
+def analyze_symbol_agents(symbol, weights=None, veto_enabled=True, force_fresh=False):
     sym = symbol.strip().upper()
     now_ts = time.time()
     
     cache_key = f"{sym}_{veto_enabled}"
-    if cache_key in AGENT_ANALYSIS_CACHE:
+    if not force_fresh and cache_key in AGENT_ANALYSIS_CACHE:
         cached_ts, cached_res = AGENT_ANALYSIS_CACHE[cache_key]
         if now_ts - cached_ts < 60:
-            return cached_res
+            res_copy = dict(cached_res)
+            res_copy["is_cached"] = True
+            res_copy["cache_age_seconds"] = round(now_ts - cached_ts, 1)
+            res_copy["execution_source"] = f"CACHE_HIT (Age: {round(now_ts - cached_ts, 1)}s)"
+            return res_copy
 
+    start_time = time.time()
     quote = get_quote(sym)
     candles = get_candles(sym, 90)
     ind = calculate_indicators(candles)
     price = quote["current_price"]
     score = ind["score"]
+
+    prompt_text = f"""
+    Analyze stock/ETF '{sym}' priced at ${price} (24h Change: {quote['percent_change']}%).
+    Technical Data: RSI={ind['rsi']}, VWAP=${ind['vwap']}, SMA20=${ind['sma_20']}, SMA50=${ind['sma_50']}, Stochastic %K={ind['stochastic']['k']}.
+    Output JSON object with exact keys:
+    "technical_reasoning": string,
+    "sentiment_reasoning": string,
+    "risk_reasoning": string
+    """
+    
+    gemini_out, model_used, api_latency = call_gemini_flash(prompt_text, "You are a Senior Quantitative AI Trading Agent.")
+    latency_ms = round((time.time() - start_time) * 1000, 1) if api_latency is None else api_latency
 
     if score >= 65:
         action = "BUY"
@@ -717,7 +736,6 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
         risk_st = "NEUTRAL"
         conf = 65.0
 
-    # Apply Risk Manager Veto Logic
     is_vetoed = False
     veto_reasoning = ""
     if action == "BUY" and veto_enabled:
@@ -727,32 +745,44 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
             is_vetoed = True
             veto_reasoning = f"RISK MANAGER VETO: High volatility/overbought stochastic (%K: {ind['stochastic']['k']}) detected. BUY signal overridden to HOLD for account safety."
 
-    exec_summary = veto_reasoning if is_vetoed else f"Multi-Agent Team reaches {action} consensus on {sym} with {round(conf, 1)}% confidence based on indicator suite score ({score}/100) and weighted risk assessment."
+    exec_summary = veto_reasoning if is_vetoed else f"Multi-Agent Team reaches {action} consensus on {sym} with {round(conf, 1)}% confidence based on technical indicator suite score ({score}/100) and risk synthesis."
 
-    return {
+    tech_reasoning = gemini_out.get("technical_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else f"Indicator score {score}/100 with RSI at {ind['rsi']} and VWAP at ${ind['vwap']}. Signals: {'; '.join(ind['signals'])}."
+    sent_reasoning = gemini_out.get("sentiment_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else f"Headline volume is net positive with intraday price movement of {quote['percent_change']}%. Momentum remains supportive."
+    risk_reasoning = gemini_out.get("risk_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else (veto_reasoning if is_vetoed else f"Entry price ${price}. Recommended 5% Trailing Stop at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% cash.")
+
+    source_label = f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})" if gemini_out else "DETERMINISTIC_INDICATOR_ENGINE"
+
+    res = {
         "symbol": sym,
         "current_price": price,
         "consensus_action": action,
         "consensus_confidence": round(conf, 1),
         "is_vetoed": is_vetoed,
         "executive_summary": exec_summary,
+        "execution_source": source_label,
+        "model_used": model_used or "deterministic-engine",
+        "latency_ms": latency_ms,
+        "is_cached": False,
+        "cache_age_seconds": 0.0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "technical_agent": {
             "agent_name": "Technical Analyst",
             "stance": tech_st,
             "confidence": round(conf, 1),
-            "reasoning": f"Indicator score {score}/100 with RSI at {ind['rsi']} and VWAP at ${ind['vwap']}. Triggers: {'; '.join(ind['signals'])}."
+            "reasoning": tech_reasoning
         },
         "sentiment_agent": {
             "agent_name": "Sentiment Analyst",
             "stance": sent_st,
             "confidence": 72.0,
-            "reasoning": f"Headline volume is net positive with intraday price movement of {quote['percent_change']}%. Momentum remains supportive."
+            "reasoning": sent_reasoning
         },
         "risk_agent": {
             "agent_name": "Risk Manager",
             "stance": risk_st,
             "confidence": 85.0,
-            "reasoning": veto_reasoning if is_vetoed else f"Entry price ${price}. Recommended 5% Trailing Stop at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% of portfolio cash."
+            "reasoning": risk_reasoning
         },
         "target_price": round(price * 1.10, 2),
         "stop_loss": round(price * 0.95, 2),
@@ -1022,6 +1052,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
         body = self._body()
 
         conn = get_db()
@@ -1183,7 +1214,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
             elif path.startswith("/api/agents/analyze/"):
                 sym = path.split("/")[-1].strip().upper()
-                analysis = analyze_symbol_agents(sym, veto_enabled=True)
+                force = query.get("force", ["false"])[0].lower() in ["1", "true"]
+                analysis = analyze_symbol_agents(sym, veto_enabled=True, force_fresh=force)
                 for k in ["technical_agent", "sentiment_agent", "risk_agent"]:
                     adata = analysis.get(k)
                     if adata:
