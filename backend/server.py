@@ -683,6 +683,35 @@ def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI
             print(f"Gemini API model {m} notice: {e}")
     return None, None, None
 
+def call_ollama_qwen(prompt, system_instruction="You are a Financial Analyst AI Agent."):
+    models = ["qwen2.5-coder:14b", "qwen2.5-coder:7b", "qwen2.5-coder", "llama3"]
+    url = "http://127.0.0.1:11434/api/generate"
+
+    for m in models:
+        payload = {
+            "model": m,
+            "prompt": prompt,
+            "system": system_instruction,
+            "stream": False,
+            "format": "json"
+        }
+        try:
+            st_time = time.time()
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            res = urllib.request.urlopen(req, timeout=35)
+            lat = round((time.time() - st_time) * 1000, 1)
+            data = json.loads(res.read().decode('utf-8'))
+            text = data.get("response", "")
+            if text:
+                return json.loads(text), f"ollama/{m}", lat
+        except Exception as e:
+            pass
+    return None, None, None
+
 # --- MULTI-AGENT SYNTHESIS WITH RISK MANAGER VETO POWER ---
 def analyze_symbol_agents(symbol, weights=None, veto_enabled=True, force_fresh=False):
     sym = symbol.strip().upper()
@@ -714,7 +743,10 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True, force_fresh=F
     "risk_reasoning": string
     """
     
-    gemini_out, model_used, api_latency = call_gemini_flash(prompt_text, "You are a Senior Quantitative AI Trading Agent.")
+    ai_out, model_used, api_latency = call_gemini_flash(prompt_text, "You are a Senior Quantitative AI Trading Agent.")
+    if not ai_out:
+        ai_out, model_used, api_latency = call_ollama_qwen(prompt_text, "You are a Senior Quantitative AI Trading Agent.")
+    
     latency_ms = round((time.time() - start_time) * 1000, 1) if api_latency is None else api_latency
 
     if score >= 65:
@@ -747,11 +779,16 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True, force_fresh=F
 
     exec_summary = veto_reasoning if is_vetoed else f"Multi-Agent Team reaches {action} consensus on {sym} with {round(conf, 1)}% confidence based on technical indicator suite score ({score}/100) and risk synthesis."
 
-    tech_reasoning = gemini_out.get("technical_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else f"Indicator score {score}/100 with RSI at {ind['rsi']} and VWAP at ${ind['vwap']}. Signals: {'; '.join(ind['signals'])}."
-    sent_reasoning = gemini_out.get("sentiment_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else f"Headline volume is net positive with intraday price movement of {quote['percent_change']}%. Momentum remains supportive."
-    risk_reasoning = gemini_out.get("risk_reasoning") if (gemini_out and isinstance(gemini_out, dict)) else (veto_reasoning if is_vetoed else f"Entry price ${price}. Recommended 5% Trailing Stop at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% cash.")
+    tech_reasoning = ai_out.get("technical_reasoning") if (ai_out and isinstance(ai_out, dict)) else f"Indicator score {score}/100 with RSI at {ind['rsi']} and VWAP at ${ind['vwap']}. Signals: {'; '.join(ind['signals'])}."
+    sent_reasoning = ai_out.get("sentiment_reasoning") if (ai_out and isinstance(ai_out, dict)) else f"Headline volume is net positive with intraday price movement of {quote['percent_change']}%. Momentum remains supportive."
+    risk_reasoning = ai_out.get("risk_reasoning") if (ai_out and isinstance(ai_out, dict)) else (veto_reasoning if is_vetoed else f"Entry price ${price}. Recommended 5% Trailing Stop at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% cash.")
 
-    source_label = f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})" if gemini_out else "DETERMINISTIC_INDICATOR_ENGINE"
+    if model_used and "ollama" in model_used:
+        source_label = f"LOCAL_OLLAMA_AI ({model_used.split('/')[-1]})"
+    elif ai_out:
+        source_label = f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})"
+    else:
+        source_label = "DETERMINISTIC_INDICATOR_ENGINE"
 
     res = {
         "symbol": sym,
@@ -893,11 +930,21 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
     "risk_summary": string
     """
 
-    gemini_out, model_used, api_latency = call_gemini_flash(prompt, "You are a Senior Multi-Agent Asset Allocator & Portfolio Architect.")
+    ai_out, model_used, api_latency = call_gemini_flash(prompt, "You are a Senior Multi-Agent Asset Allocator & Portfolio Architect.")
+    if not ai_out:
+        ai_out, model_used, api_latency = call_ollama_qwen(prompt, "You are a Senior Multi-Agent Asset Allocator & Portfolio Architect.")
+
     latency_ms = round((time.time() - start_time) * 1000, 1) if api_latency is None else api_latency
 
-    if gemini_out and isinstance(gemini_out, dict) and "recommended_assets" in gemini_out and isinstance(gemini_out["recommended_assets"], list):
-        assets = gemini_out["recommended_assets"]
+    if model_used and "ollama" in model_used:
+        source_lbl = f"LOCAL_OLLAMA_AI ({model_used.split('/')[-1]})"
+    elif ai_out:
+        source_lbl = f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})"
+    else:
+        source_lbl = "DETERMINISTIC_INDICATOR_ENGINE"
+
+    if ai_out and isinstance(ai_out, dict) and "recommended_assets" in ai_out and isinstance(ai_out["recommended_assets"], list):
+        assets = ai_out["recommended_assets"]
         for a in assets:
             sym = a.get("symbol", "SPY").upper()
             a["symbol"] = sym
@@ -909,11 +956,11 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
             "goal_text": goal_clean,
             "risk_tolerance": risk_tolerance,
             "horizon": horizon,
-            "portfolio_name": gemini_out.get("portfolio_name", f"{goal_clean} Strategy Portfolio"),
-            "overall_thesis": gemini_out.get("overall_thesis", "Strategic portfolio customized for user goal and risk profile."),
+            "portfolio_name": ai_out.get("portfolio_name", f"{goal_clean} Strategy Portfolio"),
+            "overall_thesis": ai_out.get("overall_thesis", "Strategic portfolio customized for user goal and risk profile."),
             "recommended_assets": assets,
-            "risk_summary": gemini_out.get("risk_summary", f"Risk level tailored for {risk_tolerance} risk profile and {horizon} horizon."),
-            "execution_source": f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})",
+            "risk_summary": ai_out.get("risk_summary", f"Risk level tailored for {risk_tolerance} risk profile and {horizon} horizon."),
+            "execution_source": source_lbl,
             "model_used": model_used or "gemini-flash-latest",
             "latency_ms": latency_ms,
             "is_cached": False,

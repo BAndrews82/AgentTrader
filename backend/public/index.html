@@ -701,8 +701,8 @@
 
                       {/* Execution Transparency Badge */}
                       <div className="flex flex-col items-end gap-1">
-                        <span className={`px-3 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${!agentAnalysis.is_cached ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-purple-500/20 text-purple-300 border-purple-500/40'}`}>
-                          {!agentAnalysis.is_cached ? `⚡ LIVE GEMINI API (${agentAnalysis.latency_ms}ms)` : `💾 CACHED DEBATE RESULT (Age: ${agentAnalysis.cache_age_seconds}s)`}
+                        <span className={`px-3 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${agentAnalysis.execution_source?.includes('OLLAMA') ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : (!agentAnalysis.is_cached ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-purple-500/20 text-purple-300 border-purple-500/40')}`}>
+                          {!agentAnalysis.is_cached ? (agentAnalysis.execution_source?.includes('OLLAMA') ? `🦙 LOCAL OLLAMA QWEN (${agentAnalysis.latency_ms}ms)` : `⚡ LIVE GEMINI API (${agentAnalysis.latency_ms}ms)`) : `💾 CACHED DEBATE RESULT (Age: ${agentAnalysis.cache_age_seconds}s)`}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">
                           Source: {agentAnalysis.execution_source}
