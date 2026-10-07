@@ -212,6 +212,47 @@
         await fetchData();
       };
 
+      const handleSearch = async (query) => {
+        setSearchQuery(query);
+        if (!query.trim()) {
+          setSearchResults([]);
+          return;
+        }
+        try {
+          const res = await fetch(`/api/market/search?q=${encodeURIComponent(query)}`);
+          if (res.ok) {
+            setSearchResults(await res.json());
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const addWatchlist = async (sym) => {
+        if (!sym) return;
+        try {
+          await fetch('/api/watchlist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol: sym.toUpperCase() })
+          });
+          setSearchQuery('');
+          setSearchResults([]);
+          await fetchData();
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const removeWatchlist = async (sym) => {
+        try {
+          await fetch(`/api/watchlist/${sym}`, { method: 'DELETE' });
+          await fetchData();
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
       const netWorth = portfolio?.total_equity || 100000;
       const cash = portfolio?.cash_balance || 100000;
       const posVal = portfolio?.positions_value || 0;
