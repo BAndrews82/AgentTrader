@@ -153,6 +153,20 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS agent_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            weight_technical REAL DEFAULT 0.35,
+            weight_sentiment REAL DEFAULT 0.25,
+            weight_risk REAL DEFAULT 0.40,
+            risk_veto_enabled BOOLEAN DEFAULT 1,
+            min_confidence REAL DEFAULT 70.0,
+            prompt_technical TEXT DEFAULT 'Focus on chart setups, RSI oversold/overbought thresholds, VWAP support, and Moving Average crossovers.',
+            prompt_sentiment TEXT DEFAULT 'Evaluate news headline momentum, corporate earnings catalysts, and market sentiment.',
+            prompt_risk TEXT DEFAULT 'Evaluate portfolio drawdown risk, calculate 5% trailing stops, position limits, and risk-to-reward ratio.'
+        )
+    """)
+    
     # Seed default account
     cursor.execute("SELECT COUNT(*) FROM account")
     if cursor.fetchone()[0] == 0:
@@ -162,6 +176,10 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM webhook_settings")
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO webhook_settings (channel_name) VALUES ('Default Channel Config')")
+
+    cursor.execute("SELECT COUNT(*) FROM agent_config")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO agent_config (id) VALUES (1)")
 
     # Seed default watchlist
     cursor.execute("SELECT COUNT(*) FROM watchlist")
@@ -692,6 +710,11 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 w = cursor.fetchone()
                 self._json(dict(w) if w else {})
 
+            elif path == "/api/agents/config":
+                cursor.execute("SELECT * FROM agent_config LIMIT 1")
+                cfg = cursor.fetchone()
+                self._json(dict(cfg) if cfg else {})
+
             elif path == "/api/portfolio/snapshots":
                 cursor.execute("SELECT * FROM portfolio_snapshots ORDER BY timestamp ASC LIMIT 100")
                 rows = [dict(r) for r in cursor.fetchall()]
@@ -789,6 +812,31 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 ))
                 conn.commit()
                 self._json({"message": "Webhook settings updated successfully"})
+
+            elif path == "/api/agents/config":
+                cursor.execute("""
+                    UPDATE agent_config SET
+                    weight_technical = ?,
+                    weight_sentiment = ?,
+                    weight_risk = ?,
+                    risk_veto_enabled = ?,
+                    min_confidence = ?,
+                    prompt_technical = ?,
+                    prompt_sentiment = ?,
+                    prompt_risk = ?
+                    WHERE id = 1
+                """, (
+                    float(body.get("weight_technical", 0.35)),
+                    float(body.get("weight_sentiment", 0.25)),
+                    float(body.get("weight_risk", 0.40)),
+                    1 if body.get("risk_veto_enabled", True) else 0,
+                    float(body.get("min_confidence", 70.0)),
+                    body.get("prompt_technical", ""),
+                    body.get("prompt_sentiment", ""),
+                    body.get("prompt_risk", "")
+                ))
+                conn.commit()
+                self._json({"message": "Agent Configuration updated successfully"})
 
             elif path == "/api/watchlist":
                 sym = body.get("symbol", "").strip().upper()
@@ -991,7 +1039,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
 def run():
     init_db()
-    server = socketserver.TCPServer(("", PORT), RequestHandler)
+    socketserver.TCPServer.allow_reuse_address = True
+    server = socketserver.TCPServer(("0.0.0.0", PORT), RequestHandler)
     print(f"AgentTrader v2.0 running on http://localhost:{PORT}")
     server.serve_forever()
 

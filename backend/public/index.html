@@ -75,6 +75,7 @@
       const [orders, setOrders] = useState([]);
       const [agentLogs, setAgentLogs] = useState([]);
       const [webhooks, setWebhooks] = useState({});
+      const [agentConfig, setAgentConfig] = useState({});
       
       const [selectedSymbol, setSelectedSymbol] = useState('SPY');
       const [quote, setQuote] = useState(null);
@@ -91,14 +92,15 @@
 
       const fetchData = async () => {
         try {
-          const [p, s, w, st, o, l, wh] = await Promise.all([
+          const [p, s, w, st, o, l, wh, ac] = await Promise.all([
             fetch('/api/portfolio').then(r => r.json()),
             fetch('/api/portfolio/snapshots').then(r => r.json()),
             fetch('/api/watchlist').then(r => r.json()),
             fetch('/api/strategies').then(r => r.json()),
             fetch('/api/orders').then(r => r.json()),
             fetch('/api/agents/logs').then(r => r.json()),
-            fetch('/api/webhooks').then(r => r.json())
+            fetch('/api/webhooks').then(r => r.json()),
+            fetch('/api/agents/config').then(r => r.json())
           ]);
           setPortfolio(p);
           setSnapshots(s);
@@ -107,6 +109,7 @@
           setOrders(o);
           setAgentLogs(l);
           setWebhooks(wh);
+          setAgentConfig(ac);
         } catch (e) {
           console.error(e);
         }
@@ -195,6 +198,17 @@
           body: JSON.stringify(webhooks)
         });
         alert('Webhook & Notification Settings saved successfully!');
+        await fetchData();
+      };
+
+      const handleSaveAgentConfig = async (e) => {
+        e.preventDefault();
+        await fetch('/api/agents/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(agentConfig)
+        });
+        alert('Agent Configuration & Personalities updated successfully!');
         await fetchData();
       };
 
@@ -490,6 +504,111 @@
                     </p>
                   </div>
                 )}
+
+                {/* AGENT CONFIGURATION & PERSONALITIES FORM */}
+                <div className="glass-card p-6 border-purple-500/30 space-y-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">⚙️ AI Agent Configuration & Personalities</h3>
+                    <p className="text-xs text-slate-400">Customize voting weights, consensus thresholds, Risk Veto power, and system prompts for each Gemini 3.8 Flash agent</p>
+                  </div>
+
+                  <form onSubmit={handleSaveAgentConfig} className="space-y-6 text-xs">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">📈 Technical Analyst Weight</label>
+                        <input
+                          type="number" step="0.05" min="0" max="1"
+                          value={agentConfig.weight_technical !== undefined ? agentConfig.weight_technical : 0.35}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, weight_technical: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">📰 Sentiment Analyst Weight</label>
+                        <input
+                          type="number" step="0.05" min="0" max="1"
+                          value={agentConfig.weight_sentiment !== undefined ? agentConfig.weight_sentiment : 0.25}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, weight_sentiment: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">🛡️ Risk Manager Weight</label>
+                        <input
+                          type="number" step="0.05" min="0" max="1"
+                          value={agentConfig.weight_risk !== undefined ? agentConfig.weight_risk : 0.40}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, weight_risk: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">🎯 Minimum Consensus Confidence (%)</label>
+                        <input
+                          type="number" min="0" max="100"
+                          value={agentConfig.min_confidence !== undefined ? agentConfig.min_confidence : 70}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, min_confidence: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
+                        <div>
+                          <span className="text-white font-semibold block">🛡️ Risk Manager Veto Power</span>
+                          <span className="text-[10px] text-slate-400">Allows Risk Manager to block consensus BUYs</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={agentConfig.risk_veto_enabled !== undefined ? Boolean(agentConfig.risk_veto_enabled) : true}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, risk_veto_enabled: e.target.checked })}
+                          className="w-5 h-5 accent-purple-600 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-semibold text-purple-300">Custom Agent Prompts & Directives</h4>
+                      
+                      <div>
+                        <label className="block text-slate-400 mb-1">📈 Technical Analyst System Prompt</label>
+                        <textarea
+                          rows={2}
+                          value={agentConfig.prompt_technical || ''}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, prompt_technical: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs leading-relaxed"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">📰 Sentiment Analyst System Prompt</label>
+                        <textarea
+                          rows={2}
+                          value={agentConfig.prompt_sentiment || ''}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, prompt_sentiment: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs leading-relaxed"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 mb-1">🛡️ Risk Manager System Prompt</label>
+                        <textarea
+                          rows={2}
+                          value={agentConfig.prompt_risk || ''}
+                          onChange={(e) => setAgentConfig({ ...agentConfig, prompt_risk: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white text-xs leading-relaxed"
+                        />
+                      </div>
+                    </div>
+
+                    <button type="submit" className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg transition-all">
+                      💾 Save Agent Configuration
+                    </button>
+                  </form>
+                </div>
               </div>
             )}
 
