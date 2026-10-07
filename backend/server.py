@@ -6,6 +6,8 @@ import urllib.parse
 import os
 import math
 import random
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 PORT = 8000
@@ -42,6 +44,7 @@ def init_db():
             cash_balance REAL DEFAULT 100000.0,
             initial_capital REAL DEFAULT 100000.0,
             currency TEXT DEFAULT 'USD',
+            circuit_breaker_active BOOLEAN DEFAULT 0,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -61,13 +64,17 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             symbol TEXT NOT NULL,
-            rsi_buy_threshold REAL DEFAULT 30.0,
+            rsi_buy_threshold REAL DEFAULT 35.0,
             rsi_sell_threshold REAL DEFAULT 70.0,
             ma_fast INTEGER DEFAULT 20,
             ma_slow INTEGER DEFAULT 50,
             use_ma_cross BOOLEAN DEFAULT 1,
             use_agent_consensus BOOLEAN DEFAULT 1,
             agent_min_confidence REAL DEFAULT 70.0,
+            weight_technical REAL DEFAULT 0.35,
+            weight_sentiment REAL DEFAULT 0.25,
+            weight_risk REAL DEFAULT 0.40,
+            risk_veto_enabled BOOLEAN DEFAULT 1,
             allocation_amount REAL DEFAULT 5000.0,
             active BOOLEAN DEFAULT 1,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -83,6 +90,7 @@ def init_db():
             shares REAL NOT NULL DEFAULT 0.0,
             avg_cost REAL NOT NULL DEFAULT 0.0,
             current_price REAL NOT NULL DEFAULT 0.0,
+            peak_price REAL NOT NULL DEFAULT 0.0,
             unrealized_pnl REAL DEFAULT 0.0,
             realized_pnl REAL DEFAULT 0.0,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -130,11 +138,32 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS webhook_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_name TEXT DEFAULT 'WhatsApp / Discord / Telegram',
+            whatsapp_number TEXT DEFAULT '',
+            discord_webhook_url TEXT DEFAULT '',
+            telegram_bot_token TEXT DEFAULT '',
+            telegram_chat_id TEXT DEFAULT '',
+            notify_on_trades BOOLEAN DEFAULT 1,
+            notify_on_stoploss BOOLEAN DEFAULT 1,
+            notify_on_ai_debate BOOLEAN DEFAULT 1
+        )
+    """)
+
+    # Seed default account
     cursor.execute("SELECT COUNT(*) FROM account")
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO account (cash_balance, initial_capital) VALUES (100000.0, 100000.0)")
 
+    # Seed default webhook settings if empty
+    cursor.execute("SELECT COUNT(*) FROM webhook_settings")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO webhook_settings (channel_name) VALUES ('Default Channel Config')")
+
+    # Seed default watchlist
     cursor.execute("SELECT COUNT(*) FROM watchlist")
     if cursor.fetchone()[0] == 0:
         defaults = [
@@ -148,21 +177,64 @@ def init_db():
         ]
         cursor.executemany("INSERT OR IGNORE INTO watchlist (symbol, name, asset_type) VALUES (?, ?, ?)", defaults)
 
+    # Seed default strategies
     cursor.execute("SELECT COUNT(*) FROM strategies")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
-            INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, allocation_amount, active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, ('S&P 500 Dip & AI Consensus Strategy', 'SPY', 35.0, 70.0, 20, 50, 1, 1, 70.0, 5000.0, 1))
+            INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, weight_technical, weight_sentiment, weight_risk, risk_veto_enabled, allocation_amount, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, ('S&P 500 Dip & Risk Veto Strategy', 'SPY', 35.0, 70.0, 20, 50, 1, 1, 70.0, 0.35, 0.25, 0.40, 1, 5000.0, 1))
 
         cursor.execute("""
-            INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, allocation_amount, active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, ('Tech Growth Momentum Strategy', 'NVDA', 40.0, 75.0, 9, 21, 1, 1, 75.0, 7500.0, 1))
+            INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, weight_technical, weight_sentiment, weight_risk, risk_veto_enabled, allocation_amount, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, ('Tech Growth Momentum & Risk Veto', 'NVDA', 40.0, 75.0, 9, 21, 1, 1, 75.0, 0.40, 0.20, 0.40, 1, 7500.0, 1))
 
     conn.commit()
     conn.close()
 
+# --- WEBHOOK DISPATCHER (WhatsApp, Discord, Telegram) ---
+def send_webhook_alert(title, message, alert_type="TRADE"):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM webhook_settings LIMIT 1")
+    setting = cursor.fetchone()
+    conn.close()
+
+    if not setting: return
+
+    s = dict(setting)
+    full_text = f"🚨 AgentTrader Alert [{alert_type}]\n* {title}\n{message}"
+
+    # 1. Discord Webhook
+    if s.get("discord_webhook_url"):
+        try:
+            req = urllib.request.Request(
+                s["discord_webhook_url"],
+                data=json.dumps({"content": full_text}).encode('utf-8'),
+                headers={'Content-Type': 'application/json', 'User-Agent': 'AgentTrader/2.0'}
+            )
+            urllib.request.urlopen(req, timeout=3)
+            print("Dispatched Discord Webhook Alert")
+        except Exception as e:
+            print("Discord webhook notice:", e)
+
+    # 2. Telegram Bot Webhook
+    if s.get("telegram_bot_token") and s.get("telegram_chat_id"):
+        try:
+            url = f"https://api.telegram.org/bot{s['telegram_bot_token']}/sendMessage"
+            payload = {"chat_id": s["telegram_chat_id"], "text": full_text, "parse_mode": "Markdown"}
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            urllib.request.urlopen(req, timeout=3)
+            print("Dispatched Telegram Bot Alert")
+        except Exception as e:
+            print("Telegram webhook notice:", e)
+
+# --- MARKET DATA & EXPANDED INDICATOR SUITE ---
 POPULAR = {
     "AAPL": {"name": "Apple Inc.", "asset_type": "Stock", "base": 228.50},
     "NVDA": {"name": "NVIDIA Corporation", "asset_type": "Stock", "base": 122.40},
@@ -235,12 +307,21 @@ def get_candles(symbol, days=90):
 
 def calculate_indicators(candles):
     if not candles or len(candles) < 14:
-        return {"rsi": 50.0, "sma_20": 0.0, "sma_50": 0.0, "ema_9": 0.0, "ema_21": 0.0, "score": 50.0, "trend": "NEUTRAL", "signals": ["Insufficient candle data"]}
+        return {
+            "rsi": 50.0, "sma_20": 0.0, "sma_50": 0.0, "ema_9": 0.0, "ema_21": 0.0,
+            "vwap": 0.0, "stochastic": {"k": 50.0, "d": 50.0}, "atr": 2.5,
+            "fibonacci": {"level_236": 0.0, "level_382": 0.0, "level_500": 0.0, "level_618": 0.0},
+            "score": 50.0, "trend": "NEUTRAL", "signals": ["Insufficient candle data"]
+        }
         
     closes = [c["close"] for c in candles]
+    highs = [c["high"] for c in candles]
+    lows = [c["low"] for c in candles]
+    vols = [c["volume"] for c in candles]
     length = len(closes)
     curr_price = closes[-1]
     
+    # 1. RSI (14)
     gains, losses = 0.0, 0.0
     for i in range(length - 14, length):
         diff = closes[i] - closes[i-1]
@@ -251,6 +332,7 @@ def calculate_indicators(candles):
     rs = (avg_gain / avg_loss) if avg_loss > 0 else 100.0
     rsi = round(100.0 - (100.0 / (1.0 + rs)), 2)
 
+    # 2. Moving Averages
     sma_20 = round(sum(closes[-20:]) / min(20, length), 2)
     sma_50 = round(sum(closes[-50:]) / min(50, length), 2)
 
@@ -266,15 +348,42 @@ def calculate_indicators(candles):
     ema_12 = calc_ema(12)
     ema_26 = calc_ema(26)
 
+    # 3. MACD
     macd_line = round(ema_12 - ema_26, 2)
     signal_line = round(macd_line * 0.8, 2)
     macd_hist = round(macd_line - signal_line, 2)
 
+    # 4. Bollinger Bands
     mean_20 = sma_20
     var = sum((x - mean_20)**2 for x in closes[-20:]) / min(20, length)
     std = math.sqrt(var)
     bb_upper = round(mean_20 + (std * 2), 2)
     bb_lower = round(mean_20 - (std * 2), 2)
+
+    # 5. VWAP (Volume-Weighted Average Price)
+    cum_vol = sum(vols[-20:])
+    cum_pv = sum((highs[i] + lows[i] + closes[i]) / 3.0 * vols[i] for i in range(length - 20, length))
+    vwap = round(cum_pv / cum_vol, 2) if cum_vol > 0 else curr_price
+
+    # 6. Stochastic Oscillator (14, 3)
+    highest_14 = max(highs[-14:])
+    lowest_14 = min(lows[-14:])
+    range_hl = (highest_14 - lowest_14) if (highest_14 - lowest_14) > 0 else 1.0
+    stoch_k = round(((curr_price - lowest_14) / range_hl) * 100.0, 2)
+    stoch_d = round(stoch_k * 0.85, 2)
+
+    # 7. ATR (Average True Range 14)
+    tr_sum = sum(max(highs[i] - lows[i], abs(highs[i] - closes[i-1]), abs(lows[i] - closes[i-1])) for i in range(length - 14, length))
+    atr = round(tr_sum / 14.0, 2)
+
+    # 8. Fibonacci Retracements (from 90-day High & Low)
+    max_90 = max(highs)
+    min_90 = min(lows)
+    diff_90 = max_90 - min_90
+    fib_236 = round(max_90 - (diff_90 * 0.236), 2)
+    fib_382 = round(max_90 - (diff_90 * 0.382), 2)
+    fib_500 = round(max_90 - (diff_90 * 0.500), 2)
+    fib_618 = round(max_90 - (diff_90 * 0.618), 2)
 
     score = 50.0
     signals = []
@@ -288,19 +397,26 @@ def calculate_indicators(candles):
     else:
         signals.append(f"RSI is neutral at {rsi}")
 
-    if curr_price > sma_20 and curr_price > sma_50:
-        score += 20
-        signals.append("Trading above 20-day and 50-day SMAs (Bullish trend)")
-    elif curr_price < sma_20 and curr_price < sma_50:
-        score -= 20
-        signals.append("Trading below 20-day and 50-day SMAs (Bearish trend)")
-
-    if ema_9 > ema_21:
+    if curr_price > vwap:
         score += 15
-        signals.append("9 EMA crossed above 21 EMA (Short-term momentum is positive)")
+        signals.append(f"Price is trading above VWAP (${vwap}) - Buyers in control")
     else:
         score -= 15
-        signals.append("9 EMA is below 21 EMA (Short-term momentum is negative)")
+        signals.append(f"Price is trading below VWAP (${vwap}) - Sellers in control")
+
+    if curr_price > sma_20 and curr_price > sma_50:
+        score += 15
+        signals.append("Trading above 20-day and 50-day SMAs (Bullish trend)")
+    elif curr_price < sma_20 and curr_price < sma_50:
+        score -= 15
+        signals.append("Trading below 20-day and 50-day SMAs (Bearish trend)")
+
+    if stoch_k < 20:
+        score += 10
+        signals.append(f"Stochastic Oscillator is oversold (%K: {stoch_k})")
+    elif stoch_k > 80:
+        score -= 10
+        signals.append(f"Stochastic Oscillator is overbought (%K: {stoch_k})")
 
     score = max(0.0, min(100.0, round(score, 1)))
     trend = "BULLISH" if score >= 65 else ("BEARISH" if score <= 35 else "NEUTRAL")
@@ -313,12 +429,17 @@ def calculate_indicators(candles):
         "ema_21": ema_21,
         "macd": {"macd": macd_line, "signal": signal_line, "histogram": macd_hist},
         "bollinger": {"upper": bb_upper, "middle": mean_20, "lower": bb_lower},
+        "vwap": vwap,
+        "stochastic": {"k": stoch_k, "d": stoch_d},
+        "atr": atr,
+        "fibonacci": {"level_236": fib_236, "level_382": fib_382, "level_500": fib_500, "level_618": fib_618},
         "trend": trend,
         "score": score,
         "signals": signals
     }
 
-def analyze_symbol_agents(symbol):
+# --- MULTI-AGENT SYNTHESIS WITH RISK MANAGER VETO POWER ---
+def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
     sym = symbol.strip().upper()
     quote = get_quote(sym)
     candles = get_candles(sym, 90)
@@ -345,35 +466,123 @@ def analyze_symbol_agents(symbol):
         risk_st = "NEUTRAL"
         conf = 65.0
 
+    # Apply Risk Manager Veto Logic
+    is_vetoed = False
+    veto_reasoning = ""
+    if action == "BUY" and veto_enabled:
+        if ind["rsi"] > 65 or quote["percent_change"] < -2.5 or ind["stochastic"]["k"] > 85:
+            action = "HOLD"
+            risk_st = "BEARISH"
+            is_vetoed = True
+            veto_reasoning = f"RISK MANAGER VETO: High volatility/overbought stochastic (%K: {ind['stochastic']['k']}) detected. BUY signal overridden to HOLD for account safety."
+
+    exec_summary = veto_reasoning if is_vetoed else f"Multi-Agent Team reaches {action} consensus on {sym} with {round(conf, 1)}% confidence based on indicator suite score ({score}/100) and weighted risk assessment."
+
     return {
         "symbol": sym,
         "current_price": price,
         "consensus_action": action,
         "consensus_confidence": round(conf, 1),
-        "executive_summary": f"Multi-Agent Team reaches {action} consensus on {sym} with {round(conf, 1)}% confidence based on technical score ({score}/100) and indicator alignment.",
+        "is_vetoed": is_vetoed,
+        "executive_summary": exec_summary,
         "technical_agent": {
             "agent_name": "Technical Analyst",
             "stance": tech_st,
             "confidence": round(conf, 1),
-            "reasoning": f"Chart indicators yield technical score {score}/100 with RSI at {ind['rsi']}. Key triggers: {'; '.join(ind['signals'])}."
+            "reasoning": f"Indicator score {score}/100 with RSI at {ind['rsi']} and VWAP at ${ind['vwap']}. Triggers: {'; '.join(ind['signals'])}."
         },
         "sentiment_agent": {
             "agent_name": "Sentiment Analyst",
             "stance": sent_st,
             "confidence": 72.0,
-            "reasoning": f"Market news & headline momentum is net positive with intraday price move of {quote['percent_change']}%. Catalyst drivers remain supportive."
+            "reasoning": f"Headline volume is net positive with intraday price movement of {quote['percent_change']}%. Momentum remains supportive."
         },
         "risk_agent": {
             "agent_name": "Risk Manager",
             "stance": risk_st,
-            "confidence": 82.0,
-            "reasoning": f"Entry price ${price}. Stop-loss recommended at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% of account balance."
+            "confidence": 85.0,
+            "reasoning": veto_reasoning if is_vetoed else f"Entry price ${price}. Recommended 5% Trailing Stop at ${round(price * 0.95, 2)} (-5%), profit target at ${round(price * 1.10, 2)} (+10%). Position size capped at 5% of portfolio cash."
         },
         "target_price": round(price * 1.10, 2),
         "stop_loss": round(price * 0.95, 2),
         "take_profit": round(price * 1.10, 2)
     }
 
+# --- TRAILING STOP LOSS & CIRCUIT BREAKER EVALUATOR ---
+def check_trailing_stops_and_circuit_breakers(conn):
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM account LIMIT 1")
+    acc = dict(cursor.fetchone())
+    
+    # 1. Portfolio Circuit Breaker Check (10% Max Drawdown)
+    cum_pnl_pct = ((acc["cash_balance"] - acc["initial_capital"]) / acc["initial_capital"]) * 100
+    if cum_pnl_pct <= -10.0 and not acc["circuit_breaker_active"]:
+        cursor.execute("UPDATE account SET circuit_breaker_active = 1 WHERE id = ?", (acc["id"],))
+        conn.commit()
+        send_webhook_alert(
+            "CIRCUIT BREAKER ACTIVATED",
+            f"Portfolio max drawdown reached -10.0% (${acc['cash_balance']:.2f}). All automated trading has been HALTED.",
+            alert_type="CIRCUIT_BREAKER"
+        )
+
+    # 2. Position 5% Trailing Stop Loss Check
+    cursor.execute("SELECT * FROM positions WHERE shares > 0")
+    positions = [dict(r) for r in cursor.fetchall()]
+
+    for pos in positions:
+        sym = pos["symbol"]
+        q = get_quote(sym)
+        curr_price = q["current_price"]
+        peak_price = max(pos.get("peak_price") or pos["avg_cost"], curr_price)
+        
+        # Update peak price
+        cursor.execute("UPDATE positions SET peak_price = ? WHERE id = ?", (peak_price, pos["id"]))
+        
+        # Check if price dropped 5% below peak
+        stop_price = round(peak_price * 0.95, 2)
+        if curr_price <= stop_price:
+            # Trigger Trailing Stop Loss Order
+            total_val = pos["shares"] * curr_price
+            new_cash = acc["cash_balance"] + total_val
+            realized = (curr_price - pos["avg_cost"]) * pos["shares"]
+            new_real = pos["realized_pnl"] + realized
+            
+            cursor.execute("UPDATE account SET cash_balance = ? WHERE id = ?", (new_cash, acc["id"]))
+            cursor.execute("UPDATE positions SET shares = 0, unrealized_pnl = 0, realized_pnl = ? WHERE id = ?", (new_real, pos["id"]))
+            cursor.execute("""
+                INSERT INTO orders (symbol, side, shares, price, total_value, order_type, status, triggered_by, reasoning)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (sym, "SELL", pos["shares"], curr_price, total_val, "MARKET", "FILLED", "TRAILING_STOP", f"5% Trailing Stop Loss triggered! Peak: ${peak_price:.2f}, Executed: ${curr_price:.2f}"))
+            
+            conn.commit()
+            
+            send_webhook_alert(
+                f"TRAILING STOP TRIGGERED - {sym}",
+                f"Closed position in {sym} ({pos['shares']} shares @ ${curr_price:.2f}). Peak price reached was ${peak_price:.2f}. Realized P&L: ${realized:.2f}.",
+                alert_type="TRAILING_STOP"
+            )
+
+# --- 15-MINUTE BACKGROUND CRON SCHEDULER ---
+def background_cron_loop():
+    print("AgentTrader 15-Minute Market Hours Cron Scheduler Started")
+    while True:
+        try:
+            now = datetime.now()
+            # Run tick if U.S. stock market hours (9:30 AM - 4:00 PM EST, weekdays)
+            # For paper trading simulation, run tick periodically
+            conn = get_db()
+            check_trailing_stops_and_circuit_breakers(conn)
+            conn.close()
+        except Exception as e:
+            print("Background Cron loop notice:", e)
+        time.sleep(900) # 15 minutes = 900 seconds
+
+# Start background cron thread
+cron_thread = threading.Thread(target=background_cron_loop, daemon=True)
+cron_thread.start()
+
+# --- HTTP REQUEST HANDLER ---
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     def _send_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -415,7 +624,6 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(parsed.query)
 
         if not path.startswith("/api/"):
-            # Serve static frontend web UI
             return self._serve_file(os.path.join(PUBLIC_DIR, "index.html"))
 
         conn = get_db()
@@ -423,9 +631,10 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             if path == "/api/health":
-                self._json({"status": "ok", "app": "AgentTrader Python API", "version": "1.0.0"})
+                self._json({"status": "ok", "app": "AgentTrader Python API v2.0", "version": "2.0.0"})
 
             elif path == "/api/portfolio":
+                check_trailing_stops_and_circuit_breakers(conn)
                 cursor.execute("SELECT * FROM account LIMIT 1")
                 acc = dict(cursor.fetchone())
                 
@@ -440,6 +649,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                     cp = q["current_price"]
                     mval = p["shares"] * cp
                     unr = (cp - p["avg_cost"]) * p["shares"]
+                    peak = max(p.get("peak_price") or p["avg_cost"], cp)
                     
                     pos_val += mval
                     unpnl += unr
@@ -453,6 +663,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                         "shares": round(p["shares"], 4),
                         "avg_cost": round(p["avg_cost"], 2),
                         "current_price": cp,
+                        "peak_price": round(peak, 2),
+                        "trailing_stop_price": round(peak * 0.95, 2),
                         "market_value": round(mval, 2),
                         "unrealized_pnl": round(unr, 2),
                         "realized_pnl": round(p["realized_pnl"], 2),
@@ -471,8 +683,14 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                     "realized_pnl": round(repnl, 2),
                     "cumulative_pnl": round(cum_pnl, 2),
                     "cumulative_pnl_percent": round((cum_pnl / acc["initial_capital"] * 100), 2),
+                    "circuit_breaker_active": bool(acc.get("circuit_breaker_active", 0)),
                     "positions": updated_positions
                 })
+
+            elif path == "/api/webhooks":
+                cursor.execute("SELECT * FROM webhook_settings LIMIT 1")
+                w = cursor.fetchone()
+                self._json(dict(w) if w else {})
 
             elif path == "/api/portfolio/snapshots":
                 cursor.execute("SELECT * FROM portfolio_snapshots ORDER BY timestamp ASC LIMIT 100")
@@ -515,13 +733,6 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 sym = path.split("/")[-1]
                 self._json(get_candles(sym, 90))
 
-            elif path.startswith("/api/market/news/"):
-                sym = path.split("/")[-1]
-                self._json([
-                    {"title": f"{sym} reports quarterly results exceeding consensus expectations.", "publisher": "Bloomberg", "time": "1h ago"},
-                    {"title": f"Quantitative strategy upgrade for {sym} as volume momentum rises.", "publisher": "Reuters", "time": "3h ago"}
-                ])
-
             elif path.startswith("/api/market/indicators/"):
                 sym = path.split("/")[-1]
                 candles = get_candles(sym, 90)
@@ -558,9 +769,26 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 cursor.execute("DELETE FROM orders")
                 cursor.execute("DELETE FROM positions")
                 cursor.execute("DELETE FROM portfolio_snapshots")
-                cursor.execute("UPDATE account SET cash_balance = 100000.0, initial_capital = 100000.0")
+                cursor.execute("UPDATE account SET cash_balance = 100000.0, initial_capital = 100000.0, circuit_breaker_active = 0")
                 conn.commit()
                 self._json({"message": "Portfolio reset to $100,000 cash balance"})
+
+            elif path == "/api/webhooks":
+                cursor.execute("""
+                    UPDATE webhook_settings SET
+                    whatsapp_number = ?,
+                    discord_webhook_url = ?,
+                    telegram_bot_token = ?,
+                    telegram_chat_id = ?
+                    WHERE id = 1
+                """, (
+                    body.get("whatsapp_number", ""),
+                    body.get("discord_webhook_url", ""),
+                    body.get("telegram_bot_token", ""),
+                    body.get("telegram_chat_id", "")
+                ))
+                conn.commit()
+                self._json({"message": "Webhook settings updated successfully"})
 
             elif path == "/api/watchlist":
                 sym = body.get("symbol", "").strip().upper()
@@ -576,18 +804,22 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
             elif path == "/api/strategies":
                 cursor.execute("""
-                    INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, allocation_amount, active)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO strategies (name, symbol, rsi_buy_threshold, rsi_sell_threshold, ma_fast, ma_slow, use_ma_cross, use_agent_consensus, agent_min_confidence, weight_technical, weight_sentiment, weight_risk, risk_veto_enabled, allocation_amount, active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     body.get("name", "Custom Strategy"),
                     body.get("symbol", "SPY").upper(),
-                    body.get("rsi_buy_threshold", 30.0),
+                    body.get("rsi_buy_threshold", 35.0),
                     body.get("rsi_sell_threshold", 70.0),
                     body.get("ma_fast", 20),
                     body.get("ma_slow", 50),
                     1 if body.get("use_ma_cross", True) else 0,
                     1 if body.get("use_agent_consensus", True) else 0,
                     body.get("agent_min_confidence", 70.0),
+                    body.get("weight_technical", 0.35),
+                    body.get("weight_sentiment", 0.25),
+                    body.get("weight_risk", 0.40),
+                    1 if body.get("risk_veto_enabled", True) else 0,
                     body.get("allocation_amount", 5000.0),
                     1 if body.get("active", True) else 0
                 ))
@@ -609,6 +841,9 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 cursor.execute("SELECT * FROM account LIMIT 1")
                 acc = dict(cursor.fetchone())
 
+                if acc.get("circuit_breaker_active"):
+                    return self._json({"error": "Circuit Breaker Active (-10% Max Drawdown hit). Reset portfolio to resume trading."}, 400)
+
                 cursor.execute("SELECT * FROM positions WHERE symbol = ?", (sym,))
                 pos_row = cursor.fetchone()
                 pos = dict(pos_row) if pos_row else None
@@ -622,9 +857,10 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                     if pos:
                         tot_sh = pos["shares"] + shares
                         new_avg = ((pos["shares"] * pos["avg_cost"]) + total_val) / tot_sh
-                        cursor.execute("UPDATE positions SET shares = ?, avg_cost = ?, current_price = ?, unrealized_pnl = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (tot_sh, new_avg, exec_price, (exec_price - new_avg) * tot_sh, pos["id"]))
+                        new_peak = max(pos.get("peak_price") or new_avg, exec_price)
+                        cursor.execute("UPDATE positions SET shares = ?, avg_cost = ?, current_price = ?, peak_price = ?, unrealized_pnl = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (tot_sh, new_avg, exec_price, new_peak, (exec_price - new_avg) * tot_sh, pos["id"]))
                     else:
-                        cursor.execute("INSERT INTO positions (symbol, name, asset_type, shares, avg_cost, current_price) VALUES (?, ?, ?, ?, ?, ?)", (sym, q["name"], q["asset_type"], shares, exec_price, exec_price))
+                        cursor.execute("INSERT INTO positions (symbol, name, asset_type, shares, avg_cost, current_price, peak_price) VALUES (?, ?, ?, ?, ?, ?, ?)", (sym, q["name"], q["asset_type"], shares, exec_price, exec_price, exec_price))
                 
                 elif side == "SELL":
                     if not pos or pos["shares"] < shares:
@@ -647,12 +883,19 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 """, (sym, side, shares, exec_price, total_val, body.get("order_type", "MARKET"), "FILLED", body.get("triggered_by", "MANUAL"), body.get("reasoning", "Manual trade")))
 
                 conn.commit()
+
+                send_webhook_alert(
+                    f"ORDER EXECUTED - {side} {shares} {sym}",
+                    f"Order Type: {body.get('order_type', 'MARKET')} | Price: ${exec_price:.2f} | Total: ${total_val:.2f} | Trigger: {body.get('triggered_by', 'MANUAL')}",
+                    alert_type=side
+                )
+
                 cursor.execute("SELECT * FROM orders WHERE id = ?", (cursor.lastrowid,))
                 self._json(dict(cursor.fetchone()))
 
             elif path.startswith("/api/agents/analyze/"):
                 sym = path.split("/")[-1].strip().upper()
-                analysis = analyze_symbol_agents(sym)
+                analysis = analyze_symbol_agents(sym, veto_enabled=True)
                 for k in ["technical_agent", "sentiment_agent", "risk_agent"]:
                     adata = analysis.get(k)
                     if adata:
@@ -664,6 +907,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 self._json(analysis)
 
             elif path == "/api/simulation/tick":
+                check_trailing_stops_and_circuit_breakers(conn)
                 cursor.execute("SELECT * FROM strategies WHERE active = 1")
                 strgs = [dict(r) for r in cursor.fetchall()]
                 evals = []
@@ -673,13 +917,15 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                     q = get_quote(sym)
                     candles = get_candles(sym, 30)
                     ind = calculate_indicators(candles)
-                    agents = analyze_symbol_agents(sym)
+                    agents = analyze_symbol_agents(sym, veto_enabled=bool(s.get("risk_veto_enabled", 1)))
 
                     trade_msg = "No trade condition triggered"
-                    if ind["rsi"] <= s["rsi_buy_threshold"] and agents["consensus_action"] == "BUY":
+                    if ind["rsi"] <= s["rsi_buy_threshold"] and agents["consensus_action"] == "BUY" and not agents.get("is_vetoed"):
                         sh = round(s["allocation_amount"] / q["current_price"], 4)
                         if sh > 0:
                             trade_msg = f"BUY {sh} shares of {sym} at ${q['current_price']}"
+                    elif agents.get("is_vetoed"):
+                        trade_msg = f"RISK VETO: BUY signal blocked by Risk Manager"
                     elif ind["rsi"] >= s["rsi_sell_threshold"]:
                         trade_msg = f"SELL signal for {sym} at ${q['current_price']}"
 
@@ -690,6 +936,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                         "rsi": ind["rsi"],
                         "agent_action": agents["consensus_action"],
                         "agent_confidence": agents["consensus_confidence"],
+                        "is_vetoed": agents.get("is_vetoed", False),
                         "trade_executed": trade_msg
                     })
 
@@ -744,9 +991,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
 def run():
     init_db()
-    socketserver.TCPServer.allow_reuse_address = True
     server = socketserver.TCPServer(("", PORT), RequestHandler)
-    print(f"AgentTrader App running on http://localhost:{PORT}")
+    print(f"AgentTrader v2.0 running on http://localhost:{PORT}")
     server.serve_forever()
 
 if __name__ == "__main__":

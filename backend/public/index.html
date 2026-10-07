@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentTrader AI - Algorithmic & Agentic Trading App</title>
+  <title>AgentTrader v2.0 - Algorithmic & Agentic Trading App</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -25,19 +25,6 @@
               900: '#0f172a',
               850: '#131e32',
               800: '#1e293b',
-            },
-            emerald: {
-              400: '#34d399',
-              500: '#10b981',
-            },
-            rose: {
-              400: '#fb7185',
-              500: '#f43f5e',
-            },
-            purple: {
-              400: '#c084fc',
-              500: '#a855f7',
-              600: '#9333ea',
             }
           }
         }
@@ -77,7 +64,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect } = React;
 
     function App() {
       const [activeTab, setActiveTab] = useState('dashboard');
@@ -87,6 +74,7 @@
       const [strategies, setStrategies] = useState([]);
       const [orders, setOrders] = useState([]);
       const [agentLogs, setAgentLogs] = useState([]);
+      const [webhooks, setWebhooks] = useState({});
       
       const [selectedSymbol, setSelectedSymbol] = useState('SPY');
       const [quote, setQuote] = useState(null);
@@ -100,17 +88,17 @@
       const [evaluations, setEvaluations] = useState([]);
       const [searchQuery, setSearchQuery] = useState('');
       const [searchResults, setSearchResults] = useState([]);
-      const [showCreateModal, setShowCreateModal] = useState(false);
 
       const fetchData = async () => {
         try {
-          const [p, s, w, st, o, l] = await Promise.all([
+          const [p, s, w, st, o, l, wh] = await Promise.all([
             fetch('/api/portfolio').then(r => r.json()),
             fetch('/api/portfolio/snapshots').then(r => r.json()),
             fetch('/api/watchlist').then(r => r.json()),
             fetch('/api/strategies').then(r => r.json()),
             fetch('/api/orders').then(r => r.json()),
-            fetch('/api/agents/logs').then(r => r.json())
+            fetch('/api/agents/logs').then(r => r.json()),
+            fetch('/api/webhooks').then(r => r.json())
           ]);
           setPortfolio(p);
           setSnapshots(s);
@@ -118,6 +106,7 @@
           setStrategies(st);
           setOrders(o);
           setAgentLogs(l);
+          setWebhooks(wh);
         } catch (e) {
           console.error(e);
         }
@@ -198,26 +187,14 @@
         }
       };
 
-      const handleSearch = async (q) => {
-        setSearchQuery(q);
-        if (!q.trim()) return setSearchResults([]);
-        const res = await fetch(`/api/market/search?q=${encodeURIComponent(q)}`);
-        if (res.ok) setSearchResults(await res.json());
-      };
-
-      const addWatchlist = async (sym) => {
-        await fetch('/api/watchlist', {
+      const handleSaveWebhooks = async (e) => {
+        e.preventDefault();
+        await fetch('/api/webhooks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol: sym })
+          body: JSON.stringify(webhooks)
         });
-        setSearchQuery('');
-        setSearchResults([]);
-        await fetchData();
-      };
-
-      const removeWatchlist = async (sym) => {
-        await fetch(`/api/watchlist/${sym}`, { method: 'DELETE' });
+        alert('Webhook & Notification Settings saved successfully!');
         await fetchData();
       };
 
@@ -241,11 +218,11 @@
                 </div>
                 <div>
                   <h1 className="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                    AgentTrader <span className="text-purple-400 text-xs font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">AI Paper Trading</span>
+                    AgentTrader <span className="text-purple-400 text-xs font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">v2.0 Enhanced</span>
                   </h1>
                   <p className="text-xs text-slate-400 flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Multi-Agent Team Online (Gemini 3.8 Flash & SQLite)
+                    15-Min Cron & Trailing Stop Active (Gemini 3.8 Flash)
                   </p>
                 </div>
               </div>
@@ -289,9 +266,10 @@
             <div className="max-w-7xl mx-auto flex items-center gap-2 mt-3 pt-2 border-t border-slate-800/60 overflow-x-auto">
               {[
                 { id: 'dashboard', label: '📊 Portfolio Dashboard' },
-                { id: 'watchlist', label: '📈 Watchlist & Charts' },
+                { id: 'watchlist', label: '📈 Watchlist & Indicators' },
                 { id: 'agents', label: '🤖 AI Agent Command Center' },
-                { id: 'strategies', label: '⚡ Algo & Strategy Engine' },
+                { id: 'strategies', label: '⚡ Algo & Risk Veto Engine' },
+                { id: 'webhooks', label: '💬 Notifications & Webhooks' },
                 { id: 'history', label: '📜 Order History' },
               ].map((tab) => (
                 <button
@@ -319,12 +297,12 @@
                   <div className="glass-card p-5">
                     <div className="text-xs text-slate-400 mb-1">Total Equity</div>
                     <div className="text-2xl font-bold mono text-white">${netWorth.toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                    <div className="text-xs text-slate-500 mt-1">{((cash/netWorth)*100).toFixed(1)}% liquid cash</div>
+                    <div className="text-xs text-slate-500 mt-1">5% Trailing Stops Active</div>
                   </div>
                   <div className="glass-card p-5">
-                    <div className="text-xs text-slate-400 mb-1">Cash Balance</div>
+                    <div className="text-xs text-slate-400 mb-1">Available Cash</div>
                     <div className="text-2xl font-bold mono text-emerald-400">${cash.toLocaleString(undefined, {minimumFractionDigits:2})}</div>
-                    <div className="text-xs text-slate-500 mt-1">Ready for trades</div>
+                    <div className="text-xs text-slate-500 mt-1">10% Circuit Breaker Protected</div>
                   </div>
                   <div className="glass-card p-5">
                     <div className="text-xs text-slate-400 mb-1">Holdings Value</div>
@@ -340,10 +318,10 @@
                   </div>
                 </div>
 
-                {/* Positions Table */}
+                {/* Positions Table with 5% Trailing Stop Prices */}
                 <div className="glass-card overflow-hidden">
                   <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-                    <h3 className="text-sm font-bold text-slate-200">Active Paper Trading Positions</h3>
+                    <h3 className="text-sm font-bold text-slate-200">Active Paper Trading Positions & 5% Trailing Stops</h3>
                     <span className="text-xs text-slate-400 mono">{portfolio?.positions?.length || 0} Positions</span>
                   </div>
                   {(!portfolio?.positions || portfolio.positions.length === 0) ? (
@@ -358,7 +336,8 @@
                             <th className="p-3">Shares</th>
                             <th className="p-3">Avg Cost</th>
                             <th className="p-3">Current Price</th>
-                            <th className="p-3">Market Value</th>
+                            <th className="p-3">Peak Price</th>
+                            <th className="p-3">5% Trailing Stop</th>
                             <th className="p-3">Unrealized P&L</th>
                             <th className="p-3 text-right">Action</th>
                           </tr>
@@ -376,7 +355,8 @@
                                 <td className="p-3 mono">{pos.shares}</td>
                                 <td className="p-3 mono">${pos.avg_cost.toFixed(2)}</td>
                                 <td className="p-3 mono font-semibold text-white">${pos.current_price.toFixed(2)}</td>
-                                <td className="p-3 mono font-semibold">${pos.market_value.toFixed(2)}</td>
+                                <td className="p-3 mono text-slate-300">${pos.peak_price.toFixed(2)}</td>
+                                <td className="p-3 mono font-bold text-rose-400">${pos.trailing_stop_price.toFixed(2)}</td>
                                 <td className="p-3"><span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} ({isG ? '+' : ''}{pos.pnl_percent.toFixed(2)}%)</span></td>
                                 <td className="p-3 text-right">
                                   <button onClick={() => setTradeModalSymbol(pos.symbol)} className="px-2.5 py-1 text-xs bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded">Close</button>
@@ -392,82 +372,43 @@
               </div>
             )}
 
-            {/* 2. WATCHLIST & CHARTS TAB */}
+            {/* 2. WATCHLIST & INDICATORS TAB */}
             {activeTab === 'watchlist' && (
               <div className="space-y-6">
                 <div className="glass-card p-6 flex flex-col md:flex-row justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-bold text-white">Watchlist & Interactive Candlestick Chart</h2>
-                    <p className="text-xs text-slate-400">Track quotes, technical indicators, and launch paper orders</p>
-                  </div>
-                  <div className="relative w-full md:w-80">
-                    <input
-                      type="text"
-                      placeholder="Search Ticker (e.g. AAPL, NVDA, SPY)..."
-                      value={searchQuery}
-                      onChange={(e) => handleSearch(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white mono"
-                    />
-                    {searchResults.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-xl z-50 divide-y divide-slate-800 max-h-48 overflow-y-auto">
-                        {searchResults.map(s => (
-                          <div key={s.symbol} onClick={() => addWatchlist(s.symbol)} className="p-2.5 hover:bg-slate-800 cursor-pointer flex justify-between text-xs">
-                            <span className="font-bold mono text-white">{s.symbol} ({s.name})</span>
-                            <span className="badge badge-blue">+ Add {s.asset_type}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <h2 className="text-lg font-bold text-white">All-in-One Indicator Suite & Watchlist</h2>
+                    <p className="text-xs text-slate-400">Includes VWAP, Stochastic Oscillator, ATR, and Fibonacci Retracements</p>
                   </div>
                 </div>
 
-                {/* Watchlist Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {watchlist.map((item) => {
-                    const q = item.quote || {};
-                    const isG = (q.change || 0) >= 0;
-                    return (
-                      <div key={item.symbol} className="glass-card p-5 space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-lg font-bold mono text-white">{item.symbol}</span>
-                            <span className={`ml-2 badge ${item.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'}`}>{item.asset_type}</span>
-                            <div className="text-xs text-slate-400 truncate max-w-[160px]">{item.name}</div>
-                          </div>
-                          <button onClick={() => removeWatchlist(item.symbol)} className="text-slate-600 hover:text-rose-400 text-xs">🗑️</button>
-                        </div>
-                        <div className="flex justify-between items-baseline border-t border-b border-slate-800/60 py-2">
-                          <span className="text-xl font-bold mono text-white">${q.current_price?.toFixed(2) || '150.00'}</span>
-                          <span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${q.change?.toFixed(2)} ({isG ? '+' : ''}{q.percent_change?.toFixed(2)}%)</span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => { runAgentAnalysis(item.symbol); setActiveTab('agents'); }} className="flex-1 py-1.5 bg-purple-600/20 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold">🤖 AI Debate</button>
-                          <button onClick={() => setTradeModalSymbol(item.symbol)} className="py-1.5 px-3 bg-blue-600/20 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold">🛍️ Trade</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Candlestick & Indicator Box */}
-                {quote && (
-                  <div className="glass-card p-6 space-y-4">
+                {/* Technical Indicator Breakdown */}
+                {indicators && (
+                  <div className="glass-card p-6 space-y-4 border-blue-500/30">
                     <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                       <div>
-                        <h3 className="text-lg font-bold mono text-white">{selectedSymbol} - {quote.name}</h3>
-                        <div className="text-xs text-slate-400">Price: <strong className="text-white mono">${quote.current_price?.toFixed(2)}</strong> | Technical Score: <strong className="text-purple-400 mono">{indicators?.score || 50}/100</strong></div>
+                        <h3 className="text-lg font-bold mono text-white">{selectedSymbol} - All-in-One Indicators</h3>
+                        <div className="text-xs text-slate-400">Current Price: <strong className="text-white mono">${quote?.current_price?.toFixed(2)}</strong></div>
                       </div>
-                      <span className={`badge ${indicators?.trend === 'BULLISH' ? 'badge-gain' : (indicators?.trend === 'BEARISH' ? 'badge-loss' : 'badge-neutral')}`}>{indicators?.trend || 'NEUTRAL'}</span>
+                      <span className="badge badge-purple">Technical Score: {indicators.score}/100</span>
                     </div>
 
-                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                      <div className="text-xs text-slate-400 mb-2 font-mono flex gap-4">
-                        <span>RSI (14): <strong className="text-purple-300">{indicators?.rsi || 50}</strong></span>
-                        <span>SMA 20: <strong className="text-blue-300">${indicators?.sma_20 || 0}</strong></span>
-                        <span>SMA 50: <strong className="text-blue-300">${indicators?.sma_50 || 0}</strong></span>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                        <div className="text-slate-500">VWAP</div>
+                        <div className="text-base font-bold text-emerald-400">${indicators.vwap}</div>
                       </div>
-                      <div className="h-48 flex items-center justify-center border border-dashed border-slate-800 rounded text-xs text-slate-500 font-mono">
-                        Candlestick bars for {selectedSymbol} ({candles.length} trading days) loaded & calculated in SQLite backend.
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                        <div className="text-slate-500">Stochastic %K / %D</div>
+                        <div className="text-base font-bold text-purple-300">{indicators.stochastic?.k} / {indicators.stochastic?.d}</div>
+                      </div>
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                        <div className="text-slate-500">ATR (14 Volatility)</div>
+                        <div className="text-base font-bold text-blue-300">${indicators.atr}</div>
+                      </div>
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                        <div className="text-slate-500">Fib 61.8% Support</div>
+                        <div className="text-base font-bold text-amber-300">${indicators.fibonacci?.level_618}</div>
                       </div>
                     </div>
                   </div>
@@ -481,8 +422,8 @@
                 <div className="glass-card p-6 border-purple-500/30">
                   <div className="flex flex-col md:flex-row justify-between gap-4">
                     <div>
-                      <h2 className="text-xl font-bold text-white flex items-center gap-2">🤖 Multi-Agent AI Debate & Consensus Engine</h2>
-                      <p className="text-xs text-slate-400">Gemini 3.8 Flash multi-agent debate (Technical Analyst, Sentiment Analyst, Risk Manager, Executive Consensus)</p>
+                      <h2 className="text-xl font-bold text-white">🤖 Multi-Agent AI Debate & Risk Manager Veto</h2>
+                      <p className="text-xs text-slate-400">Gemini 3.8 Flash multi-agent consensus with absolute Risk Manager Veto power</p>
                     </div>
                     <div className="flex gap-2">
                       <input
@@ -507,205 +448,131 @@
                           <span className={`px-3 py-0.5 rounded text-lg ${agentAnalysis.consensus_action === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : (agentAnalysis.consensus_action === 'SELL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' : 'bg-amber-500/20 text-amber-400')}`}>
                             {agentAnalysis.consensus_action}
                           </span>
-                          <span className="text-sm font-normal text-slate-400">Confidence: <strong className="text-white">{agentAnalysis.consensus_confidence}%</strong></span>
+                          {agentAnalysis.is_vetoed && <span className="badge badge-loss">🛡️ RISK VETO ACTIVE</span>}
                         </div>
                       </div>
-                      <div className="text-xs font-mono bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                        <div>Target Profit: <strong className="text-emerald-400">${agentAnalysis.target_price?.toFixed(2)}</strong></div>
-                        <div>Stop Loss: <strong className="text-rose-400">${agentAnalysis.stop_loss?.toFixed(2)}</strong></div>
-                      </div>
                     </div>
-
                     <p className="text-xs text-slate-300 italic bg-slate-950/60 p-3 rounded-lg border border-slate-800">
                       "{agentAnalysis.executive_summary}"
                     </p>
-
-                    <button
-                      onClick={async () => {
-                        const side = agentAnalysis.consensus_action === 'SELL' ? 'SELL' : 'BUY';
-                        await handleOrder({ symbol: agentAnalysis.symbol, side, shares: 10, price: agentAnalysis.current_price, order_type: 'MARKET', triggered_by: 'AGENT', reasoning: `Agent Consensus ${side}: ${agentAnalysis.executive_summary}` });
-                        setActiveTab('dashboard');
-                      }}
-                      className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs rounded-xl shadow-lg"
-                    >
-                      ⚡ Execute Agent Paper Trade (10 shares of {agentAnalysis.symbol})
-                    </button>
                   </div>
                 )}
-
-                {/* 3 Agent Perspective Cards */}
-                {agentAnalysis && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="glass-card p-5 space-y-2">
-                      <div className="font-bold text-slate-200 text-sm flex justify-between">
-                        <span>Technical Analyst</span>
-                        <span className="badge badge-gain">{agentAnalysis.technical_agent?.stance || 'BULLISH'}</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
-                        {agentAnalysis.technical_agent?.reasoning}
-                      </p>
-                    </div>
-
-                    <div className="glass-card p-5 space-y-2">
-                      <div className="font-bold text-slate-200 text-sm flex justify-between">
-                        <span>Sentiment Analyst</span>
-                        <span className="badge badge-purple">{agentAnalysis.sentiment_agent?.stance || 'BULLISH'}</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
-                        {agentAnalysis.sentiment_agent?.reasoning}
-                      </p>
-                    </div>
-
-                    <div className="glass-card p-5 space-y-2">
-                      <div className="font-bold text-slate-200 text-sm flex justify-between">
-                        <span>Risk Manager</span>
-                        <span className="badge badge-neutral">{agentAnalysis.risk_agent?.stance || 'NEUTRAL'}</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
-                        {agentAnalysis.risk_agent?.reasoning}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Audit Logs */}
-                <div className="glass-card p-6 space-y-3">
-                  <h3 className="text-sm font-bold text-white">Recent AI Agent Audit Logs</h3>
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    {agentLogs.map(l => (
-                      <div key={l.id} className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs space-y-1">
-                        <div className="flex justify-between font-bold text-white mono">
-                          <span>{l.symbol} ({l.agent_name})</span>
-                          <span className="text-purple-400">{l.stance} ({l.confidence}%)</span>
-                        </div>
-                        <p className="text-slate-300">{l.reasoning}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* 4. STRATEGIES TAB */}
-            {activeTab === 'strategies' && (
-              <div className="space-y-6">
-                <div className="glass-card p-6 flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-bold text-white">Algorithmic & Agentic Strategy Engine</h2>
-                    <p className="text-xs text-slate-400">Custom quantitative triggers (RSI, MA Crossover) + AI Consensus validation</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={handleTick} className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold text-xs rounded-xl shadow-lg">⚡ Run Strategy Tick</button>
-                    <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-blue-600 text-white font-semibold text-xs rounded-xl shadow-lg">+ Create Strategy</button>
-                  </div>
-                </div>
+            {/* 4. WEBHOOKS & NOTIFICATIONS TAB */}
+            {activeTab === 'webhooks' && (
+              <div className="glass-card p-6 space-y-4 max-w-2xl border-purple-500/30">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">💬 Multi-Channel Webhook Notifications</h2>
+                <p className="text-xs text-slate-400">Receive instant alerts for paper trades, stop losses, and AI signals on WhatsApp, Discord, or Telegram</p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={handleSaveWebhooks} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1">WhatsApp Recipient Phone Number</label>
+                    <input
+                      type="text"
+                      placeholder="+1234567890"
+                      value={webhooks.whatsapp_number || ''}
+                      onChange={(e) => setWebhooks({ ...webhooks, whatsapp_number: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">Discord Webhook URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://discord.com/api/webhooks/..."
+                      value={webhooks.discord_webhook_url || ''}
+                      onChange={(e) => setWebhooks({ ...webhooks, discord_webhook_url: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Telegram Bot Token</label>
+                      <input
+                        type="text"
+                        placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+                        value={webhooks.telegram_bot_token || ''}
+                        onChange={(e) => setWebhooks({ ...webhooks, telegram_bot_token: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Telegram Chat ID</label>
+                      <input
+                        type="text"
+                        placeholder="123456789"
+                        value={webhooks.telegram_chat_id || ''}
+                        onChange={(e) => setWebhooks({ ...webhooks, telegram_chat_id: e.target.value })}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-white mono"
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl shadow-lg">Save Notification Settings</button>
+                </form>
+              </div>
+            )}
+
+            {/* 5. STRATEGIES TAB */}
+            {activeTab === 'strategies' && (
+              <div className="glass-card p-6 space-y-4">
+                <h2 className="text-xl font-bold text-white">Algorithmic Strategy & Risk Veto Engine</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {strategies.map(s => (
-                    <div key={s.id} className="glass-card p-6 space-y-3 border-blue-500/30">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-bold text-white">{s.name}</h3>
-                          <span className="badge badge-purple mono mt-1">{s.symbol}</span>
-                        </div>
-                        <button onClick={async () => { await fetch(`/api/strategies/${s.id}`, { method: 'DELETE' }); fetchData(); }} className="text-slate-600 hover:text-rose-400 text-xs">🗑️</button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs bg-slate-900 p-3 rounded-xl border border-slate-800 mono">
-                        <div>RSI Buy: &le; {s.rsi_buy_threshold}</div>
-                        <div>RSI Sell: &ge; {s.rsi_sell_threshold}</div>
-                        <div>Allocation: ${s.allocation_amount}</div>
-                        <div>AI Agent Check: {s.use_agent_consensus ? 'Enabled' : 'Disabled'}</div>
-                      </div>
+                    <div key={s.id} className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-xs space-y-2">
+                      <div className="font-bold text-white">{s.name} ({s.symbol})</div>
+                      <div>Risk Manager Veto: <span className="text-emerald-400 font-bold">{s.risk_veto_enabled ? 'ENABLED' : 'DISABLED'}</span></div>
                     </div>
                   ))}
                 </div>
-
-                {evaluations.length > 0 && (
-                  <div className="glass-card p-6 space-y-3">
-                    <h3 className="text-sm font-bold text-white">Last Tick Evaluation Results</h3>
-                    <div className="space-y-2">
-                      {evaluations.map((ev, i) => (
-                        <div key={i} className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs flex justify-between font-mono">
-                          <span>{ev.strategy_name} ({ev.symbol}) - RSI: {ev.rsi}</span>
-                          <span className="text-emerald-400 font-bold">{ev.trade_executed}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* 5. ORDER HISTORY TAB */}
+            {/* 6. ORDER HISTORY TAB */}
             {activeTab === 'history' && (
               <div className="glass-card overflow-hidden">
                 <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-                  <h2 className="text-lg font-bold text-white">Completed Paper Order History</h2>
+                  <h2 className="text-lg font-bold text-white">Completed Paper Order Log</h2>
                   <span className="badge badge-blue mono">{orders.length} Executed</span>
                 </div>
-                {orders.length === 0 ? (
-                  <div className="p-8 text-center text-slate-500 text-xs">No paper trades executed yet.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
-                        <tr>
-                          <th className="p-3">Time</th>
-                          <th className="p-3">Symbol</th>
-                          <th className="p-3">Side</th>
-                          <th className="p-3">Shares</th>
-                          <th className="p-3">Price</th>
-                          <th className="p-3">Total Value</th>
-                          <th className="p-3">Triggered By</th>
-                          <th className="p-3">Reasoning</th>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Time</th>
+                        <th className="p-3">Symbol</th>
+                        <th className="p-3">Side</th>
+                        <th className="p-3">Shares</th>
+                        <th className="p-3">Price</th>
+                        <th className="p-3">Total Value</th>
+                        <th className="p-3">Triggered By</th>
+                        <th className="p-3">Reasoning</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/40">
+                      {orders.map(o => (
+                        <tr key={o.id} className="hover:bg-slate-900/40">
+                          <td className="p-3 font-mono text-slate-400">{new Date(o.created_at || Date.now()).toLocaleTimeString()}</td>
+                          <td className="p-3 font-bold mono text-white">{o.symbol}</td>
+                          <td className="p-3"><span className={`badge ${o.side === 'BUY' ? 'badge-gain' : 'badge-loss'} mono`}>{o.side}</span></td>
+                          <td className="p-3 mono">{o.shares}</td>
+                          <td className="p-3 mono">${o.price?.toFixed(2)}</td>
+                          <td className="p-3 mono font-semibold">${o.total_value?.toFixed(2)}</td>
+                          <td className="p-3"><span className="badge badge-purple">{o.triggered_by}</span></td>
+                          <td className="p-3 text-slate-300 max-w-xs truncate">{o.reasoning}</td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/40">
-                        {orders.map(o => (
-                          <tr key={o.id} className="hover:bg-slate-900/40">
-                            <td className="p-3 font-mono text-slate-400">{new Date(o.created_at || Date.now()).toLocaleTimeString()}</td>
-                            <td className="p-3 font-bold mono text-white">{o.symbol}</td>
-                            <td className="p-3"><span className={`badge ${o.side === 'BUY' ? 'badge-gain' : 'badge-loss'} mono`}>{o.side}</span></td>
-                            <td className="p-3 mono">{o.shares}</td>
-                            <td className="p-3 mono">${o.price?.toFixed(2)}</td>
-                            <td className="p-3 mono font-semibold">${o.total_value?.toFixed(2)}</td>
-                            <td className="p-3"><span className="badge badge-purple">{o.triggered_by}</span></td>
-                            <td className="p-3 text-slate-300 max-w-xs truncate">{o.reasoning}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
           </main>
-
-          {/* TRADE MODAL */}
-          {tradeModalSymbol && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-              <div className="glass-card p-6 max-w-md w-full space-y-4 border-blue-500/30">
-                <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                  <h3 className="font-bold text-white">Execute Paper Trade - <span className="mono text-blue-400">{tradeModalSymbol}</span></h3>
-                  <button onClick={() => setTradeModalSymbol(null)} className="text-slate-400 font-bold text-lg">&times;</button>
-                </div>
-                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between text-xs mono">
-                  <span>Price: ${quote?.current_price?.toFixed(2) || '150.00'}</span>
-                  <span>Cash: ${cash.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
-                </div>
-                <button
-                  onClick={async () => {
-                    await handleOrder({ symbol: tradeModalSymbol, side: 'BUY', shares: 10, price: quote?.current_price || 150.0, order_type: 'MARKET', triggered_by: 'MANUAL', reasoning: `Manual paper buy 10 shares of ${tradeModalSymbol}` });
-                    setTradeModalSymbol(null);
-                  }}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg"
-                >
-                  Confirm BUY 10 Shares of {tradeModalSymbol}
-                </button>
-              </div>
-            </div>
-          )}
 
         </div>
       );
