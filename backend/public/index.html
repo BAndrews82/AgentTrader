@@ -163,6 +163,7 @@
           if (res.ok) {
             const data = await res.json();
             setGoalResult(data);
+            await fetchData();
           }
         } catch (e) {
           console.error(e);
@@ -228,7 +229,7 @@
           const url = force ? `/api/agents/analyze/${sym}?force=true` : `/api/agents/analyze/${sym}`;
           const res = await fetch(url, { method: 'POST' });
           if (res.ok) setAgentAnalysis(await res.json());
-          await fetchData();
+          await Promise.all([fetchData(), fetchSymbolData(sym)]);
         } catch (e) {
           console.error(e);
         } finally {
