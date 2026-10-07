@@ -375,46 +375,79 @@
             {/* 2. WATCHLIST & INDICATORS TAB */}
             {activeTab === 'watchlist' && (
               <div className="space-y-6">
-                <div className="glass-card p-6 flex flex-col md:flex-row justify-between gap-4">
+                {/* Watchlist & Add Ticker Header */}
+                <div className="glass-card p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div>
-                    <h2 className="text-lg font-bold text-white">All-in-One Indicator Suite & Watchlist</h2>
-                    <p className="text-xs text-slate-400">Includes VWAP, Stochastic Oscillator, ATR, and Fibonacci Retracements</p>
+                    <h2 className="text-lg font-bold text-white">Market Explorer & Watchlist Manager</h2>
+                    <p className="text-xs text-slate-400">Add Stock or ETF symbols to your active paper trading watchlist</p>
                   </div>
+
+                  {/* Add Custom Ticker Direct Input Form */}
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (searchQuery.trim()) {
+                        addWatchlist(searchQuery.trim().toUpperCase());
+                      }
+                    }}
+                    className="flex items-center gap-2 w-full md:w-auto relative"
+                  >
+                    <div className="relative flex-1 md:w-64">
+                      <input
+                        type="text"
+                        placeholder="Type ticker e.g. PLTR, AMD, NVDA..."
+                        value={searchQuery}
+                        onChange={(e) => handleSearch(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white mono uppercase focus:outline-none focus:border-blue-500"
+                      />
+                      {searchResults.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-xl z-50 divide-y divide-slate-800 max-h-48 overflow-y-auto shadow-2xl">
+                          {searchResults.map(s => (
+                            <div key={s.symbol} onClick={() => addWatchlist(s.symbol)} className="p-2.5 hover:bg-slate-800 cursor-pointer flex justify-between text-xs">
+                              <span className="font-bold mono text-white">{s.symbol} ({s.name})</span>
+                              <span className="badge badge-blue">+ Add {s.asset_type}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all shrink-0"
+                    >
+                      + Add to Watchlist
+                    </button>
+                  </form>
                 </div>
 
-                {/* Technical Indicator Breakdown */}
-                {indicators && (
-                  <div className="glass-card p-6 space-y-4 border-blue-500/30">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                      <div>
-                        <h3 className="text-lg font-bold mono text-white">{selectedSymbol} - All-in-One Indicators</h3>
-                        <div className="text-xs text-slate-400">Current Price: <strong className="text-white mono">${quote?.current_price?.toFixed(2)}</strong></div>
+                {/* Watchlist Asset Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {watchlist.map((item) => {
+                    const q = item.quote || {};
+                    const isG = (q.change || 0) >= 0;
+                    return (
+                      <div key={item.symbol} className="glass-card p-5 space-y-3 relative group">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-lg font-bold mono text-white">{item.symbol}</span>
+                            <span className={`ml-2 badge ${item.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'}`}>{item.asset_type}</span>
+                            <div className="text-xs text-slate-400 truncate max-w-[160px]">{item.name}</div>
+                          </div>
+                          <button onClick={() => removeWatchlist(item.symbol)} className="text-slate-600 hover:text-rose-400 p-1.5 rounded transition-colors" title="Remove ticker from watchlist">🗑️</button>
+                        </div>
+                        <div className="flex justify-between items-baseline border-t border-b border-slate-800/60 py-2">
+                          <span className="text-xl font-bold mono text-white">${q.current_price?.toFixed(2) || '150.00'}</span>
+                          <span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${q.change?.toFixed(2)} ({isG ? '+' : ''}{q.percent_change?.toFixed(2)}%)</span>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => { runAgentAnalysis(item.symbol); setActiveTab('agents'); }} className="flex-1 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold">🤖 AI Debate</button>
+                          <button onClick={() => setTradeModalSymbol(item.symbol)} className="py-1.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold">🛍️ Trade</button>
+                        </div>
                       </div>
-                      <span className="badge badge-purple">Technical Score: {indicators.score}/100</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
-                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <div className="text-slate-500">VWAP</div>
-                        <div className="text-base font-bold text-emerald-400">${indicators.vwap}</div>
-                      </div>
-                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <div className="text-slate-500">Stochastic %K / %D</div>
-                        <div className="text-base font-bold text-purple-300">{indicators.stochastic?.k} / {indicators.stochastic?.d}</div>
-                      </div>
-                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <div className="text-slate-500">ATR (14 Volatility)</div>
-                        <div className="text-base font-bold text-blue-300">${indicators.atr}</div>
-                      </div>
-                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                        <div className="text-slate-500">Fib 61.8% Support</div>
-                        <div className="text-base font-bold text-amber-300">${indicators.fibonacci?.level_618}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
 
             {/* 3. AI AGENT COMMAND CENTER TAB */}
             {activeTab === 'agents' && (
