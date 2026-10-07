@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentTrader AI - Algorithmic & Agentic Trading App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              950: '#070a11',
+              900: '#0f172a',
+              850: '#131e32',
+              800: '#1e293b',
+            },
+            emerald: {
+              400: '#34d399',
+              500: '#10b981',
+            },
+            rose: {
+              400: '#fb7185',
+              500: '#f43f5e',
+            },
+            purple: {
+              400: '#c084fc',
+              500: '#a855f7',
+              600: '#9333ea',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background-color: #070a11; color: #f8fafc; }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-gain { background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-loss { background: rgba(244, 63, 94, 0.12); color: #f43f5e; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-neutral { background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.2); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #070a11; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [portfolio, setPortfolio] = useState(null);
+      const [snapshots, setSnapshots] = useState([]);
+      const [watchlist, setWatchlist] = useState([]);
+      const [strategies, setStrategies] = useState([]);
+      const [orders, setOrders] = useState([]);
+      const [agentLogs, setAgentLogs] = useState([]);
+      
+      const [selectedSymbol, setSelectedSymbol] = useState('SPY');
+      const [quote, setQuote] = useState(null);
+      const [candles, setCandles] = useState([]);
+      const [indicators, setIndicators] = useState(null);
+      const [agentAnalysis, setAgentAnalysis] = useState(null);
+      const [agentLoading, setAgentLoading] = useState(false);
+
+      const [tradeModalSymbol, setTradeModalSymbol] = useState(null);
+      const [simLoading, setSimLoading] = useState(false);
+      const [evaluations, setEvaluations] = useState([]);
+      const [searchQuery, setSearchQuery] = useState('');
+      const [searchResults, setSearchResults] = useState([]);
+      const [showCreateModal, setShowCreateModal] = useState(false);
+
+      const fetchData = async () => {
+        try {
+          const [p, s, w, st, o, l] = await Promise.all([
+            fetch('/api/portfolio').then(r => r.json()),
+            fetch('/api/portfolio/snapshots').then(r => r.json()),
+            fetch('/api/watchlist').then(r => r.json()),
+            fetch('/api/strategies').then(r => r.json()),
+            fetch('/api/orders').then(r => r.json()),
+            fetch('/api/agents/logs').then(r => r.json())
+          ]);
+          setPortfolio(p);
+          setSnapshots(s);
+          setWatchlist(w);
+          setStrategies(st);
+          setOrders(o);
+          setAgentLogs(l);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const fetchSymbolData = async (sym) => {
+        try {
+          const [q, c, ind] = await Promise.all([
+            fetch(`/api/market/quote/${sym}`).then(r => r.json()),
+            fetch(`/api/market/candles/${sym}`).then(r => r.json()),
+            fetch(`/api/market/indicators/${sym}`).then(r => r.json())
+          ]);
+          setQuote(q);
+          setCandles(c);
+          setIndicators(ind);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const runAgentAnalysis = async (sym) => {
+        setAgentLoading(true);
+        setSelectedSymbol(sym);
+        try {
+          const res = await fetch(`/api/agents/analyze/${sym}`, { method: 'POST' });
+          if (res.ok) setAgentAnalysis(await res.json());
+          await fetchData();
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setAgentLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        fetchData();
+        fetchSymbolData(selectedSymbol);
+      }, []);
+
+      useEffect(() => {
+        fetchSymbolData(selectedSymbol);
+      }, [selectedSymbol]);
+
+      const handleReset = async () => {
+        if (confirm('Reset paper portfolio to $100,000 cash?')) {
+          await fetch('/api/portfolio/reset', { method: 'POST' });
+          await fetchData();
+        }
+      };
+
+      const handleTick = async () => {
+        setSimLoading(true);
+        try {
+          const res = await fetch('/api/simulation/tick', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            setEvaluations(data.evaluations || []);
+          }
+          await fetchData();
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setSimLoading(false);
+        }
+      };
+
+      const handleOrder = async (orderData) => {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(orderData)
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || 'Order failed');
+        } else {
+          await fetchData();
+        }
+      };
+
+      const handleSearch = async (q) => {
+        setSearchQuery(q);
+        if (!q.trim()) return setSearchResults([]);
+        const res = await fetch(`/api/market/search?q=${encodeURIComponent(q)}`);
+        if (res.ok) setSearchResults(await res.json());
+      };
+
+      const addWatchlist = async (sym) => {
+        await fetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: sym })
+        });
+        setSearchQuery('');
+        setSearchResults([]);
+        await fetchData();
+      };
+
+      const removeWatchlist = async (sym) => {
+        await fetch(`/api/watchlist/${sym}`, { method: 'DELETE' });
+        await fetchData();
+      };
+
+      const netWorth = portfolio?.total_equity || 100000;
+      const cash = portfolio?.cash_balance || 100000;
+      const posVal = portfolio?.positions_value || 0;
+      const pnl = portfolio?.cumulative_pnl || 0;
+      const pnlPct = portfolio?.cumulative_pnl_percent || 0;
+      const isGain = pnl >= 0;
+
+      return (
+        <div className="min-h-screen flex flex-col font-sans">
+          
+          {/* HEADER */}
+          <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-6 py-3">
+            <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+              
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-purple-600 to-emerald-500 p-0.5 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                  <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center font-bold text-purple-400 text-lg">🤖</div>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                    AgentTrader <span className="text-purple-400 text-xs font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">AI Paper Trading</span>
+                  </h1>
+                  <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Multi-Agent Team Online (Gemini 3.8 Flash & SQLite)
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2">
+                <div className="border-r border-slate-800 pr-4">
+                  <div className="text-[10px] text-slate-400 uppercase">Net Worth</div>
+                  <div className="text-sm font-bold mono text-white">${netWorth.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+                </div>
+                <div className="border-r border-slate-800 pr-4">
+                  <div className="text-[10px] text-slate-400 uppercase">Cash</div>
+                  <div className="text-sm font-semibold mono text-slate-300">${cash.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-400 uppercase">Paper P&L</div>
+                  <div className={`text-sm font-bold mono ${isGain ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {isGain ? '+' : ''}${pnl.toFixed(2)} ({isGain ? '+' : ''}{pnlPct.toFixed(2)}%)
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleTick}
+                  disabled={simLoading}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition-all shadow-md shadow-purple-500/20 active:scale-95 disabled:opacity-50"
+                >
+                  ⚡ {simLoading ? 'Executing Tick...' : 'Run Strategy Tick'}
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg border border-slate-800"
+                  title="Reset Portfolio to $100k"
+                >
+                  🔄
+                </button>
+              </div>
+
+            </div>
+
+            <div className="max-w-7xl mx-auto flex items-center gap-2 mt-3 pt-2 border-t border-slate-800/60 overflow-x-auto">
+              {[
+                { id: 'dashboard', label: '📊 Portfolio Dashboard' },
+                { id: 'watchlist', label: '📈 Watchlist & Charts' },
+                { id: 'agents', label: '🤖 AI Agent Command Center' },
+                { id: 'strategies', label: '⚡ Algo & Strategy Engine' },
+                { id: 'history', label: '📜 Order History' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    activeTab === tab.id
+                      ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </header>
+
+          {/* MAIN CONTENT */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+            
+            {/* 1. DASHBOARD TAB */}
+            {activeTab === 'dashboard' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="glass-card p-5">
+                    <div className="text-xs text-slate-400 mb-1">Total Equity</div>
+                    <div className="text-2xl font-bold mono text-white">${netWorth.toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                    <div className="text-xs text-slate-500 mt-1">{((cash/netWorth)*100).toFixed(1)}% liquid cash</div>
+                  </div>
+                  <div className="glass-card p-5">
+                    <div className="text-xs text-slate-400 mb-1">Cash Balance</div>
+                    <div className="text-2xl font-bold mono text-emerald-400">${cash.toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                    <div className="text-xs text-slate-500 mt-1">Ready for trades</div>
+                  </div>
+                  <div className="glass-card p-5">
+                    <div className="text-xs text-slate-400 mb-1">Holdings Value</div>
+                    <div className="text-2xl font-bold mono text-purple-400">${posVal.toLocaleString(undefined, {minimumFractionDigits:2})}</div>
+                    <div className="text-xs text-slate-500 mt-1">{portfolio?.positions?.length || 0} active positions</div>
+                  </div>
+                  <div className="glass-card p-5">
+                    <div className="text-xs text-slate-400 mb-1">Unrealized P&L</div>
+                    <div className={`text-2xl font-bold mono ${portfolio?.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {portfolio?.unrealized_pnl >= 0 ? '+' : ''}${portfolio?.unrealized_pnl?.toFixed(2) || '0.00'}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">Realized: ${portfolio?.realized_pnl?.toFixed(2) || '0.00'}</div>
+                  </div>
+                </div>
+
+                {/* Positions Table */}
+                <div className="glass-card overflow-hidden">
+                  <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                    <h3 className="text-sm font-bold text-slate-200">Active Paper Trading Positions</h3>
+                    <span className="text-xs text-slate-400 mono">{portfolio?.positions?.length || 0} Positions</span>
+                  </div>
+                  {(!portfolio?.positions || portfolio.positions.length === 0) ? (
+                    <div className="p-8 text-center text-slate-500 text-xs">No active positions. Search tickers in Watchlist to trade!</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-900/60 text-xs text-slate-400 border-b border-slate-800">
+                          <tr>
+                            <th className="p-3">Symbol</th>
+                            <th className="p-3">Asset</th>
+                            <th className="p-3">Shares</th>
+                            <th className="p-3">Avg Cost</th>
+                            <th className="p-3">Current Price</th>
+                            <th className="p-3">Market Value</th>
+                            <th className="p-3">Unrealized P&L</th>
+                            <th className="p-3 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/40 text-xs">
+                          {portfolio.positions.map((pos) => {
+                            const isG = pos.unrealized_pnl >= 0;
+                            return (
+                              <tr key={pos.symbol} className="hover:bg-slate-900/40">
+                                <td className="p-3 font-bold mono text-white">
+                                  {pos.symbol}
+                                  <button onClick={() => { runAgentAnalysis(pos.symbol); setActiveTab('agents'); }} className="ml-2 text-purple-400">🤖</button>
+                                </td>
+                                <td className="p-3"><span className={`badge ${pos.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'}`}>{pos.asset_type}</span></td>
+                                <td className="p-3 mono">{pos.shares}</td>
+                                <td className="p-3 mono">${pos.avg_cost.toFixed(2)}</td>
+                                <td className="p-3 mono font-semibold text-white">${pos.current_price.toFixed(2)}</td>
+                                <td className="p-3 mono font-semibold">${pos.market_value.toFixed(2)}</td>
+                                <td className="p-3"><span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} ({isG ? '+' : ''}{pos.pnl_percent.toFixed(2)}%)</span></td>
+                                <td className="p-3 text-right">
+                                  <button onClick={() => setTradeModalSymbol(pos.symbol)} className="px-2.5 py-1 text-xs bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded">Close</button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 2. WATCHLIST & CHARTS TAB */}
+            {activeTab === 'watchlist' && (
+              <div className="space-y-6">
+                <div className="glass-card p-6 flex flex-col md:flex-row justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Watchlist & Interactive Candlestick Chart</h2>
+                    <p className="text-xs text-slate-400">Track quotes, technical indicators, and launch paper orders</p>
+                  </div>
+                  <div className="relative w-full md:w-80">
+                    <input
+                      type="text"
+                      placeholder="Search Ticker (e.g. AAPL, NVDA, SPY)..."
+                      value={searchQuery}
+                      onChange={(e) => handleSearch(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white mono"
+                    />
+                    {searchResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-xl z-50 divide-y divide-slate-800 max-h-48 overflow-y-auto">
+                        {searchResults.map(s => (
+                          <div key={s.symbol} onClick={() => addWatchlist(s.symbol)} className="p-2.5 hover:bg-slate-800 cursor-pointer flex justify-between text-xs">
+                            <span className="font-bold mono text-white">{s.symbol} ({s.name})</span>
+                            <span className="badge badge-blue">+ Add {s.asset_type}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Watchlist Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {watchlist.map((item) => {
+                    const q = item.quote || {};
+                    const isG = (q.change || 0) >= 0;
+                    return (
+                      <div key={item.symbol} className="glass-card p-5 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-lg font-bold mono text-white">{item.symbol}</span>
+                            <span className={`ml-2 badge ${item.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'}`}>{item.asset_type}</span>
+                            <div className="text-xs text-slate-400 truncate max-w-[160px]">{item.name}</div>
+                          </div>
+                          <button onClick={() => removeWatchlist(item.symbol)} className="text-slate-600 hover:text-rose-400 text-xs">🗑️</button>
+                        </div>
+                        <div className="flex justify-between items-baseline border-t border-b border-slate-800/60 py-2">
+                          <span className="text-xl font-bold mono text-white">${q.current_price?.toFixed(2) || '150.00'}</span>
+                          <span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${q.change?.toFixed(2)} ({isG ? '+' : ''}{q.percent_change?.toFixed(2)}%)</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => { runAgentAnalysis(item.symbol); setActiveTab('agents'); }} className="flex-1 py-1.5 bg-purple-600/20 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold">🤖 AI Debate</button>
+                          <button onClick={() => setTradeModalSymbol(item.symbol)} className="py-1.5 px-3 bg-blue-600/20 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold">🛍️ Trade</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Candlestick & Indicator Box */}
+                {quote && (
+                  <div className="glass-card p-6 space-y-4">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="text-lg font-bold mono text-white">{selectedSymbol} - {quote.name}</h3>
+                        <div className="text-xs text-slate-400">Price: <strong className="text-white mono">${quote.current_price?.toFixed(2)}</strong> | Technical Score: <strong className="text-purple-400 mono">{indicators?.score || 50}/100</strong></div>
+                      </div>
+                      <span className={`badge ${indicators?.trend === 'BULLISH' ? 'badge-gain' : (indicators?.trend === 'BEARISH' ? 'badge-loss' : 'badge-neutral')}`}>{indicators?.trend || 'NEUTRAL'}</span>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                      <div className="text-xs text-slate-400 mb-2 font-mono flex gap-4">
+                        <span>RSI (14): <strong className="text-purple-300">{indicators?.rsi || 50}</strong></span>
+                        <span>SMA 20: <strong className="text-blue-300">${indicators?.sma_20 || 0}</strong></span>
+                        <span>SMA 50: <strong className="text-blue-300">${indicators?.sma_50 || 0}</strong></span>
+                      </div>
+                      <div className="h-48 flex items-center justify-center border border-dashed border-slate-800 rounded text-xs text-slate-500 font-mono">
+                        Candlestick bars for {selectedSymbol} ({candles.length} trading days) loaded & calculated in SQLite backend.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. AI AGENT COMMAND CENTER TAB */}
+            {activeTab === 'agents' && (
+              <div className="space-y-6">
+                <div className="glass-card p-6 border-purple-500/30">
+                  <div className="flex flex-col md:flex-row justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2">🤖 Multi-Agent AI Debate & Consensus Engine</h2>
+                      <p className="text-xs text-slate-400">Gemini 3.8 Flash multi-agent debate (Technical Analyst, Sentiment Analyst, Risk Manager, Executive Consensus)</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={selectedSymbol}
+                        onChange={(e) => setSelectedSymbol(e.target.value.toUpperCase())}
+                        className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white mono uppercase w-28"
+                      />
+                      <button onClick={() => runAgentAnalysis(selectedSymbol)} disabled={agentLoading} className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold text-xs rounded-xl shadow-lg">
+                        {agentLoading ? 'Debating...' : 'Run Agent Debate'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {agentAnalysis && (
+                  <div className="glass-card p-6 bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 border-purple-500/40 space-y-4">
+                    <div className="flex flex-col md:flex-row justify-between gap-4 border-b border-slate-800 pb-4">
+                      <div>
+                        <div className="text-xs text-slate-400">Consensus Recommendation for <strong className="text-white mono">{agentAnalysis.symbol}</strong>:</div>
+                        <div className="text-2xl font-bold text-purple-300 flex items-center gap-3 mt-1">
+                          <span className={`px-3 py-0.5 rounded text-lg ${agentAnalysis.consensus_action === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : (agentAnalysis.consensus_action === 'SELL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40' : 'bg-amber-500/20 text-amber-400')}`}>
+                            {agentAnalysis.consensus_action}
+                          </span>
+                          <span className="text-sm font-normal text-slate-400">Confidence: <strong className="text-white">{agentAnalysis.consensus_confidence}%</strong></span>
+                        </div>
+                      </div>
+                      <div className="text-xs font-mono bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
+                        <div>Target Profit: <strong className="text-emerald-400">${agentAnalysis.target_price?.toFixed(2)}</strong></div>
+                        <div>Stop Loss: <strong className="text-rose-400">${agentAnalysis.stop_loss?.toFixed(2)}</strong></div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-300 italic bg-slate-950/60 p-3 rounded-lg border border-slate-800">
+                      "{agentAnalysis.executive_summary}"
+                    </p>
+
+                    <button
+                      onClick={async () => {
+                        const side = agentAnalysis.consensus_action === 'SELL' ? 'SELL' : 'BUY';
+                        await handleOrder({ symbol: agentAnalysis.symbol, side, shares: 10, price: agentAnalysis.current_price, order_type: 'MARKET', triggered_by: 'AGENT', reasoning: `Agent Consensus ${side}: ${agentAnalysis.executive_summary}` });
+                        setActiveTab('dashboard');
+                      }}
+                      className="w-full py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs rounded-xl shadow-lg"
+                    >
+                      ⚡ Execute Agent Paper Trade (10 shares of {agentAnalysis.symbol})
+                    </button>
+                  </div>
+                )}
+
+                {/* 3 Agent Perspective Cards */}
+                {agentAnalysis && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="glass-card p-5 space-y-2">
+                      <div className="font-bold text-slate-200 text-sm flex justify-between">
+                        <span>Technical Analyst</span>
+                        <span className="badge badge-gain">{agentAnalysis.technical_agent?.stance || 'BULLISH'}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
+                        {agentAnalysis.technical_agent?.reasoning}
+                      </p>
+                    </div>
+
+                    <div className="glass-card p-5 space-y-2">
+                      <div className="font-bold text-slate-200 text-sm flex justify-between">
+                        <span>Sentiment Analyst</span>
+                        <span className="badge badge-purple">{agentAnalysis.sentiment_agent?.stance || 'BULLISH'}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
+                        {agentAnalysis.sentiment_agent?.reasoning}
+                      </p>
+                    </div>
+
+                    <div className="glass-card p-5 space-y-2">
+                      <div className="font-bold text-slate-200 text-sm flex justify-between">
+                        <span>Risk Manager</span>
+                        <span className="badge badge-neutral">{agentAnalysis.risk_agent?.stance || 'NEUTRAL'}</span>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/40 p-3 rounded border border-slate-800">
+                        {agentAnalysis.risk_agent?.reasoning}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Audit Logs */}
+                <div className="glass-card p-6 space-y-3">
+                  <h3 className="text-sm font-bold text-white">Recent AI Agent Audit Logs</h3>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                    {agentLogs.map(l => (
+                      <div key={l.id} className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs space-y-1">
+                        <div className="flex justify-between font-bold text-white mono">
+                          <span>{l.symbol} ({l.agent_name})</span>
+                          <span className="text-purple-400">{l.stance} ({l.confidence}%)</span>
+                        </div>
+                        <p className="text-slate-300">{l.reasoning}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. STRATEGIES TAB */}
+            {activeTab === 'strategies' && (
+              <div className="space-y-6">
+                <div className="glass-card p-6 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Algorithmic & Agentic Strategy Engine</h2>
+                    <p className="text-xs text-slate-400">Custom quantitative triggers (RSI, MA Crossover) + AI Consensus validation</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={handleTick} className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold text-xs rounded-xl shadow-lg">⚡ Run Strategy Tick</button>
+                    <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-blue-600 text-white font-semibold text-xs rounded-xl shadow-lg">+ Create Strategy</button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {strategies.map(s => (
+                    <div key={s.id} className="glass-card p-6 space-y-3 border-blue-500/30">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-white">{s.name}</h3>
+                          <span className="badge badge-purple mono mt-1">{s.symbol}</span>
+                        </div>
+                        <button onClick={async () => { await fetch(`/api/strategies/${s.id}`, { method: 'DELETE' }); fetchData(); }} className="text-slate-600 hover:text-rose-400 text-xs">🗑️</button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs bg-slate-900 p-3 rounded-xl border border-slate-800 mono">
+                        <div>RSI Buy: &le; {s.rsi_buy_threshold}</div>
+                        <div>RSI Sell: &ge; {s.rsi_sell_threshold}</div>
+                        <div>Allocation: ${s.allocation_amount}</div>
+                        <div>AI Agent Check: {s.use_agent_consensus ? 'Enabled' : 'Disabled'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {evaluations.length > 0 && (
+                  <div className="glass-card p-6 space-y-3">
+                    <h3 className="text-sm font-bold text-white">Last Tick Evaluation Results</h3>
+                    <div className="space-y-2">
+                      {evaluations.map((ev, i) => (
+                        <div key={i} className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs flex justify-between font-mono">
+                          <span>{ev.strategy_name} ({ev.symbol}) - RSI: {ev.rsi}</span>
+                          <span className="text-emerald-400 font-bold">{ev.trade_executed}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 5. ORDER HISTORY TAB */}
+            {activeTab === 'history' && (
+              <div className="glass-card overflow-hidden">
+                <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-white">Completed Paper Order History</h2>
+                  <span className="badge badge-blue mono">{orders.length} Executed</span>
+                </div>
+                {orders.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 text-xs">No paper trades executed yet.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-900 text-slate-400 border-b border-slate-800">
+                        <tr>
+                          <th className="p-3">Time</th>
+                          <th className="p-3">Symbol</th>
+                          <th className="p-3">Side</th>
+                          <th className="p-3">Shares</th>
+                          <th className="p-3">Price</th>
+                          <th className="p-3">Total Value</th>
+                          <th className="p-3">Triggered By</th>
+                          <th className="p-3">Reasoning</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {orders.map(o => (
+                          <tr key={o.id} className="hover:bg-slate-900/40">
+                            <td className="p-3 font-mono text-slate-400">{new Date(o.created_at || Date.now()).toLocaleTimeString()}</td>
+                            <td className="p-3 font-bold mono text-white">{o.symbol}</td>
+                            <td className="p-3"><span className={`badge ${o.side === 'BUY' ? 'badge-gain' : 'badge-loss'} mono`}>{o.side}</span></td>
+                            <td className="p-3 mono">{o.shares}</td>
+                            <td className="p-3 mono">${o.price?.toFixed(2)}</td>
+                            <td className="p-3 mono font-semibold">${o.total_value?.toFixed(2)}</td>
+                            <td className="p-3"><span className="badge badge-purple">{o.triggered_by}</span></td>
+                            <td className="p-3 text-slate-300 max-w-xs truncate">{o.reasoning}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </main>
+
+          {/* TRADE MODAL */}
+          {tradeModalSymbol && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+              <div className="glass-card p-6 max-w-md w-full space-y-4 border-blue-500/30">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                  <h3 className="font-bold text-white">Execute Paper Trade - <span className="mono text-blue-400">{tradeModalSymbol}</span></h3>
+                  <button onClick={() => setTradeModalSymbol(null)} className="text-slate-400 font-bold text-lg">&times;</button>
+                </div>
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex justify-between text-xs mono">
+                  <span>Price: ${quote?.current_price?.toFixed(2) || '150.00'}</span>
+                  <span>Cash: ${cash.toLocaleString(undefined, {minimumFractionDigits:2})}</span>
+                </div>
+                <button
+                  onClick={async () => {
+                    await handleOrder({ symbol: tradeModalSymbol, side: 'BUY', shares: 10, price: quote?.current_price || 150.0, order_type: 'MARKET', triggered_by: 'MANUAL', reasoning: `Manual paper buy 10 shares of ${tradeModalSymbol}` });
+                    setTradeModalSymbol(null);
+                  }}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg"
+                >
+                  Confirm BUY 10 Shares of {tradeModalSymbol}
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
