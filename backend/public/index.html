@@ -133,6 +133,87 @@
         }
       };
 
+      const [goalText, setGoalText] = useState('High Growth AI & Cloud Infrastructure');
+      const [riskTolerance, setRiskTolerance] = useState('Moderate');
+      const [horizon, setHorizon] = useState('Medium-Term');
+      const [goalResult, setGoalResult] = useState(null);
+      const [goalLoading, setGoalLoading] = useState(false);
+      const [isGoalForcing, setIsGoalForcing] = useState(false);
+      const [allocateCapital, setAllocateCapital] = useState(10000);
+
+      const runGoalPlanner = async (gText, rTol, hZon, force = false) => {
+        setGoalLoading(true);
+        setIsGoalForcing(force);
+        try {
+          const url = force ? '/api/agents/recommend_goal?force=true' : '/api/agents/recommend_goal';
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              goal_text: gText || goalText,
+              risk_tolerance: rTol || riskTolerance,
+              horizon: hZon || horizon,
+              force_fresh: force
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setGoalResult(data);
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setGoalLoading(false);
+          setIsGoalForcing(false);
+        }
+      };
+
+      const handleAddAllGoalToWatchlist = async () => {
+        if (!goalResult || !goalResult.recommended_assets) return;
+        try {
+          for (const item of goalResult.recommended_assets) {
+            await fetch('/api/watchlist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ symbol: item.symbol, notes: `Recommended for goal: ${goalResult.portfolio_name}` })
+            });
+          }
+          await fetchData();
+          alert(`Added ${goalResult.recommended_assets.length} assets to your Watchlist!`);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const handleAllocateGoalPortfolio = async () => {
+        if (!goalResult || !goalResult.recommended_assets) return;
+        if (!confirm(`Allocate $${allocateCapital.toLocaleString()} paper capital across ${goalResult.recommended_assets.length} recommended assets?`)) return;
+        try {
+          for (const item of goalResult.recommended_assets) {
+            const dollars = (allocateCapital * (item.allocation_percent / 100.0));
+            const shares = Math.max(0.001, parseFloat((dollars / item.current_price).toFixed(4)));
+            if (shares > 0) {
+              await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  symbol: item.symbol,
+                  side: 'BUY',
+                  shares: shares,
+                  order_type: 'MARKET',
+                  triggered_by: 'GOAL_PLANNER',
+                  reasoning: `Auto-allocated from Goal Portfolio: ${goalResult.portfolio_name} (${item.allocation_percent}% allocation)`
+                })
+              });
+            }
+          }
+          await fetchData();
+          alert(`Successfully allocated $${allocateCapital.toLocaleString()} paper capital across ${goalResult.portfolio_name}!`);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
       const [isForcing, setIsForcing] = useState(false);
 
       const runAgentAnalysis = async (sym, force = false) => {
@@ -348,6 +429,7 @@
                 { id: 'dashboard', label: '📊 Portfolio Dashboard' },
                 { id: 'watchlist', label: '📈 Watchlist & Indicators' },
                 { id: 'agents', label: '🤖 AI Agent Command Center' },
+                { id: 'goal_planner', label: '🎯 Goal & Idea Planner' },
                 { id: 'strategies', label: '⚡ Algo & Risk Veto Engine' },
                 { id: 'webhooks', label: '💬 Notifications & Webhooks' },
                 { id: 'history', label: '📜 Order History' },
@@ -807,6 +889,254 @@
                     </button>
                   </form>
                 </div>
+              </div>
+            )}
+
+            {/* 3.5. AI GOAL & IDEA PORTFOLIO PLANNER TAB */}
+            {activeTab === 'goal_planner' && (
+              <div className="space-y-6">
+                <div className="glass-card p-6 border-purple-500/30 space-y-6">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        🎯 AI Goal & Idea Portfolio Planner
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Enter any investment goal, macro thesis, or portfolio idea. The Gemini 3.8 Flash multi-agent committee (Technical, Sentiment, Risk) will debate, select, and allocate matching stocks & ETFs.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Preset Idea Cards Bar */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">
+                      ⚡ Quick Preset Investment Theses (Click to Load)
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                      {[
+                        { title: "🚀 AI & Semiconductors", text: "High Growth AI hardware, chips, and cloud infrastructure" },
+                        { title: "💰 Dividend Aristocrats", text: "High passive income dividend yield and steady cash flow" },
+                        { title: "🌱 Clean Energy & EV", text: "Solar, renewable energy, and electric vehicle innovation" },
+                        { title: "🛡️ Inflation & Volatility Hedge", text: "Low volatility defensive stocks, gold, and broad index ETFs" },
+                        { title: "🌐 Web3 & Next-Gen Cloud", text: "Decentralized tech, cloud platforms, and cybersecurity" },
+                        { title: "🏥 Healthcare Leaders", text: "Biotech breakthroughs, medical technology, and pharma" }
+                      ].map((preset, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => { setGoalText(preset.text); runGoalPlanner(preset.text, riskTolerance, horizon, false); }}
+                          className="p-3 bg-slate-900/80 hover:bg-purple-950/40 border border-slate-800 hover:border-purple-500/40 rounded-xl text-left transition-all group"
+                        >
+                          <div className="text-xs font-bold text-purple-300 group-hover:text-purple-200">{preset.title}</div>
+                          <div className="text-[10px] text-slate-400 line-clamp-2 mt-1">{preset.text}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Form Input Section */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+                    <div className="md:col-span-3">
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        📝 Investment Goal / Macro Thesis / Portfolio Idea:
+                      </label>
+                      <textarea
+                        rows="2"
+                        value={goalText}
+                        onChange={(e) => setGoalText(e.target.value)}
+                        placeholder="e.g. I want to build a balanced 5-year growth portfolio focusing on AI hardware and clean energy with medium risk..."
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500/60 leading-relaxed resize-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">🛡️ Risk Tolerance Profile</label>
+                      <select
+                        value={riskTolerance}
+                        onChange={(e) => setRiskTolerance(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      >
+                        <option value="Conservative">Conservative (Capital Preservation)</option>
+                        <option value="Moderate">Moderate (Balanced Risk & Return)</option>
+                        <option value="Aggressive">Aggressive (High Growth Focus)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">⏳ Investment Horizon</label>
+                      <select
+                        value={horizon}
+                        onChange={(e) => setHorizon(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                      >
+                        <option value="Short-Term">Short-Term (&lt; 1 Year)</option>
+                        <option value="Medium-Term">Medium-Term (1 – 3 Years)</option>
+                        <option value="Long-Term">Long-Term (3 – 5+ Years)</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-end gap-2">
+                      <button
+                        onClick={() => runGoalPlanner(goalText, riskTolerance, horizon, false)}
+                        disabled={goalLoading}
+                        className="flex-1 py-2 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold text-xs rounded-xl shadow-lg transition-all"
+                      >
+                        {goalLoading ? (isGoalForcing ? '⚡ Contacting Gemini API...' : '🔍 Debating Portfolio...') : '⚡ Generate Goal Portfolio'}
+                      </button>
+                      <button
+                        onClick={() => runGoalPlanner(goalText, riskTolerance, horizon, true)}
+                        disabled={goalLoading}
+                        className="py-2 px-3 bg-slate-800 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 font-semibold text-xs rounded-xl shadow-lg transition-all shrink-0"
+                        title="Bypass 60s memory cache and force live Gemini API call"
+                      >
+                        {goalLoading && isGoalForcing ? '⏳ Calling...' : '🔄 Force Live'}
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Goal Result Cards & Debate Breakdown */}
+                {goalResult && (
+                  <div className="glass-card p-6 bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 border-purple-500/40 space-y-6">
+                    
+                    {/* Header & Execution Source */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-4">
+                      <div>
+                        <div className="text-xs text-slate-400">Multi-Agent Recommended Strategy Portfolio:</div>
+                        <h3 className="text-xl font-bold text-white mt-0.5">{goalResult.portfolio_name}</h3>
+                        <p className="text-xs text-purple-300 italic mt-1 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                          "{goalResult.overall_thesis}"
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className={`px-3 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${!goalResult.is_cached ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' : 'bg-purple-500/20 text-purple-300 border-purple-500/40'}`}>
+                          {!goalResult.is_cached ? `⚡ LIVE GEMINI API (${goalResult.latency_ms}ms)` : `💾 CACHED RESULT (${goalResult.cache_age_seconds}s)`}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Source: {goalResult.execution_source}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Toolbar for Recommended Portfolio */}
+                    <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                          🛍️ One-Click Auto-Allocate Paper Capital Across Portfolio
+                        </div>
+                        <p className="text-[11px] text-slate-400">Auto-calculate exact share quantities per stock according to allocation weight and execute paper market orders.</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full md:w-auto">
+                        <span className="text-xs text-slate-400 font-mono">$</span>
+                        <input
+                          type="number"
+                          step="500"
+                          value={allocateCapital}
+                          onChange={(e) => setAllocateCapital(parseFloat(e.target.value) || 0)}
+                          className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white mono"
+                        />
+                        <button
+                          onClick={handleAllocateGoalPortfolio}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1 shrink-0"
+                        >
+                          🛍️ Auto-Allocate Portfolio
+                        </button>
+                        <button
+                          onClick={handleAddAllGoalToWatchlist}
+                          className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/30 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 shrink-0"
+                        >
+                          ➕ Add All to Watchlist
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Grid of Recommended Assets */}
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                        Recommended Assets ({goalResult.recommended_assets?.length || 0}) & Multi-Agent Stance
+                      </h4>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {goalResult.recommended_assets?.map((asset, idx) => (
+                          <div key={idx} className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 space-y-4 hover:border-purple-500/30 transition-all">
+                            
+                            {/* Asset Header */}
+                            <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg font-bold text-white mono">{asset.symbol}</span>
+                                  <span className="badge badge-neutral">{asset.asset_type}</span>
+                                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${asset.consensus_action === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-300'}`}>
+                                    {asset.consensus_action} ({asset.consensus_confidence}%)
+                                  </span>
+                                </div>
+                                <div className="text-xs text-slate-400 mt-0.5">{asset.asset_name}</div>
+                              </div>
+
+                              <div className="text-right">
+                                <div className="text-base font-bold text-white mono">${asset.current_price?.toFixed(2)}</div>
+                                <div className="text-xs font-semibold text-purple-300 mono">{asset.allocation_percent}% Allocation</div>
+                              </div>
+                            </div>
+
+                            {/* Allocation Progress Bar */}
+                            <div>
+                              <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                                <div
+                                  className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full transition-all duration-500"
+                                  style={{ width: `${asset.allocation_percent}%` }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            {/* Individual Agent Reasoning */}
+                            <div className="space-y-2 text-[11px]">
+                              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                                <strong className="text-emerald-400 block font-semibold">📈 Technical Analyst Stance:</strong>
+                                <p className="text-slate-300 mt-0.5">{asset.technical_reasoning}</p>
+                              </div>
+                              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                                <strong className="text-blue-400 block font-semibold">📰 Sentiment Analyst Stance:</strong>
+                                <p className="text-slate-300 mt-0.5">{asset.sentiment_reasoning}</p>
+                              </div>
+                              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                                <strong className="text-purple-400 block font-semibold">🛡️ Risk Manager Stance:</strong>
+                                <p className="text-slate-300 mt-0.5">{asset.risk_reasoning}</p>
+                              </div>
+                            </div>
+
+                            {/* Asset Actions */}
+                            <div className="flex justify-end items-center gap-2 pt-2 border-t border-slate-800/60">
+                              <button
+                                onClick={() => openProfile(asset.symbol)}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-medium flex items-center gap-1"
+                              >
+                                ℹ️ Profile
+                              </button>
+                              <button
+                                onClick={() => setTradeModalSymbol(asset.symbol)}
+                                className="px-3 py-1 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold flex items-center gap-1"
+                              >
+                                🛍️ Trade Ticker
+                              </button>
+                            </div>
+
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Risk & Diversification Summary */}
+                    <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-xs space-y-1">
+                      <strong className="text-slate-300 font-semibold uppercase tracking-wider block">🛡️ Portfolio Risk & Diversification Assessment</strong>
+                      <p className="text-slate-400 leading-relaxed">{goalResult.risk_summary}</p>
+                    </div>
+
+                  </div>
+                )}
+
               </div>
             )}
 

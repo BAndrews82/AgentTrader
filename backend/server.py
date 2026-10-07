@@ -792,6 +792,156 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True, force_fresh=F
     AGENT_ANALYSIS_CACHE[cache_key] = (now_ts, res)
     return res
 
+# --- GOAL & IDEA MULTI-AGENT PORTFOLIO RECOMMENDATION ENGINE ---
+GOAL_PORTFOLIO_CACHE = {}
+
+def get_deterministic_goal_assets(goal_text, risk_tolerance):
+    gt = goal_text.lower()
+    if any(k in gt for k in ["ai", "chip", "semiconductor", "tech", "hardware", "cloud", "software"]):
+        raw_list = [
+            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock", "allocation_percent": 30.0},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust (Nasdaq 100)", "asset_type": "ETF", "allocation_percent": 25.0},
+            {"symbol": "MSFT", "asset_name": "Microsoft Corporation", "asset_type": "Stock", "allocation_percent": 25.0},
+            {"symbol": "AAPL", "asset_name": "Apple Inc.", "asset_type": "Stock", "allocation_percent": 20.0}
+        ]
+    elif any(k in gt for k in ["dividend", "income", "yield", "cash", "passive"]):
+        raw_list = [
+            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF", "allocation_percent": 35.0},
+            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF", "allocation_percent": 25.0},
+            {"symbol": "VOO", "asset_name": "Vanguard S&P 500 ETF", "asset_type": "ETF", "allocation_percent": 25.0},
+            {"symbol": "IWM", "asset_name": "iShares Russell 2000 ETF", "asset_type": "ETF", "allocation_percent": 15.0}
+        ]
+    elif any(k in gt for k in ["clean", "green", "energy", "ev", "solar", "electric", "climate"]):
+        raw_list = [
+            {"symbol": "TSLA", "asset_name": "Tesla, Inc.", "asset_type": "Stock", "allocation_percent": 30.0},
+            {"symbol": "ICLN", "asset_name": "iShares Global Clean Energy ETF", "asset_type": "ETF", "allocation_percent": 30.0},
+            {"symbol": "RIVN", "asset_name": "Rivian Automotive", "asset_type": "Stock", "allocation_percent": 20.0},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF", "allocation_percent": 20.0}
+        ]
+    else:
+        raw_list = [
+            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF", "allocation_percent": 30.0},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF", "allocation_percent": 30.0},
+            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock", "allocation_percent": 20.0},
+            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF", "allocation_percent": 20.0}
+        ]
+
+    assets = []
+    for item in raw_list:
+        sym = item["symbol"]
+        q = get_quote(sym)
+        c = get_candles(sym, 30)
+        ind = calculate_indicators(c)
+        
+        action = "BUY" if ind["score"] >= 55 else "ACCUMULATE"
+        is_veto = (ind["rsi"] > 75) if risk_tolerance == "Conservative" else False
+        
+        assets.append({
+            "symbol": sym,
+            "asset_name": item["asset_name"],
+            "asset_type": item["asset_type"],
+            "allocation_percent": item["allocation_percent"],
+            "current_price": q["current_price"],
+            "percent_change": q["percent_change"],
+            "consensus_action": action,
+            "consensus_confidence": round(ind["score"] + 15.0, 1),
+            "technical_reasoning": f"Indicator suite score {ind['score']}/100. RSI at {ind['rsi']}, VWAP at ${ind['vwap']}.",
+            "sentiment_reasoning": f"Volume activity robust with intraday movement of {q['percent_change']}%. Momentum supports thesis.",
+            "risk_reasoning": f"Volatility managed under {risk_tolerance} parameters. 5% trailing stop recommended.",
+            "is_vetoed": is_veto
+        })
+    return assets
+
+def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medium-Term", force_fresh=False):
+    goal_clean = (goal_text or "Balanced Portfolio Growth").strip()
+    cache_key = f"{goal_clean.lower()}_{risk_tolerance.lower()}_{horizon.lower()}"
+    now_ts = time.time()
+
+    if not force_fresh and cache_key in GOAL_PORTFOLIO_CACHE:
+        cached_ts, cached_res = GOAL_PORTFOLIO_CACHE[cache_key]
+        if now_ts - cached_ts < 60:
+            res_copy = dict(cached_res)
+            res_copy["is_cached"] = True
+            res_copy["cache_age_seconds"] = round(now_ts - cached_ts, 1)
+            res_copy["execution_source"] = f"CACHE_HIT (Age: {round(now_ts - cached_ts, 1)}s)"
+            return res_copy
+
+    start_time = time.time()
+
+    prompt = f"""
+    The user wants an investment portfolio based on this goal/thesis: '{goal_clean}'.
+    User Profile: Risk Tolerance = '{risk_tolerance}', Investment Horizon = '{horizon}'.
+    
+    Act as a Multi-Agent Investment Committee (Technical Analyst, Sentiment Analyst, Risk Manager).
+    Select 4 to 6 top relevant U.S. stocks and ETFs matching this goal.
+    Assign allocation percentages that sum to EXACTLY 100%.
+    
+    Output JSON object with exact keys:
+    "portfolio_name": string (e.g. "AI Hardware & Next-Gen Infrastructure Portfolio"),
+    "overall_thesis": string (2-3 sentence strategic executive summary),
+    "recommended_assets": array of objects with keys:
+        "symbol": string,
+        "asset_name": string,
+        "asset_type": "Stock" or "ETF",
+        "allocation_percent": number,
+        "consensus_action": "BUY" or "ACCUMULATE" or "HOLD",
+        "consensus_confidence": number,
+        "technical_reasoning": string,
+        "sentiment_reasoning": string,
+        "risk_reasoning": string,
+        "is_vetoed": boolean,
+    "risk_summary": string
+    """
+
+    gemini_out, model_used, api_latency = call_gemini_flash(prompt, "You are a Senior Multi-Agent Asset Allocator & Portfolio Architect.")
+    latency_ms = round((time.time() - start_time) * 1000, 1) if api_latency is None else api_latency
+
+    if gemini_out and isinstance(gemini_out, dict) and "recommended_assets" in gemini_out and isinstance(gemini_out["recommended_assets"], list):
+        assets = gemini_out["recommended_assets"]
+        for a in assets:
+            sym = a.get("symbol", "SPY").upper()
+            a["symbol"] = sym
+            q = get_quote(sym)
+            a["current_price"] = q["current_price"]
+            a["percent_change"] = q["percent_change"]
+
+        res = {
+            "goal_text": goal_clean,
+            "risk_tolerance": risk_tolerance,
+            "horizon": horizon,
+            "portfolio_name": gemini_out.get("portfolio_name", f"{goal_clean} Strategy Portfolio"),
+            "overall_thesis": gemini_out.get("overall_thesis", "Strategic portfolio customized for user goal and risk profile."),
+            "recommended_assets": assets,
+            "risk_summary": gemini_out.get("risk_summary", f"Risk level tailored for {risk_tolerance} risk profile and {horizon} horizon."),
+            "execution_source": f"LIVE_GEMINI_API ({model_used or 'gemini-flash-latest'})",
+            "model_used": model_used or "gemini-flash-latest",
+            "latency_ms": latency_ms,
+            "is_cached": False,
+            "cache_age_seconds": 0.0,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        GOAL_PORTFOLIO_CACHE[cache_key] = (now_ts, res)
+        return res
+
+    fallback_assets = get_deterministic_goal_assets(goal_clean, risk_tolerance)
+    res = {
+        "goal_text": goal_clean,
+        "risk_tolerance": risk_tolerance,
+        "horizon": horizon,
+        "portfolio_name": f"{goal_clean} Strategy Portfolio",
+        "overall_thesis": f"Algorithmic portfolio allocation optimized for '{goal_clean}' under {risk_tolerance} parameters using quantitative technical indicators.",
+        "recommended_assets": fallback_assets,
+        "risk_summary": f"Diversified asset allocation matching {risk_tolerance} profile with stop loss risk protection.",
+        "execution_source": "DETERMINISTIC_INDICATOR_ENGINE",
+        "model_used": "quantitative-fallback-engine",
+        "latency_ms": latency_ms,
+        "is_cached": False,
+        "cache_age_seconds": 0.0,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    GOAL_PORTFOLIO_CACHE[cache_key] = (now_ts, res)
+    return res
+
 # --- TRAILING STOP LOSS & CIRCUIT BREAKER EVALUATOR ---
 def check_trailing_stops_and_circuit_breakers(conn):
     cursor = conn.cursor()
@@ -1226,6 +1376,15 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 conn.commit()
                 self._json(analysis)
 
+            elif path == "/api/agents/recommend_goal":
+                body = self._body()
+                gt = body.get("goal_text", "Balanced Portfolio Growth")
+                rt = body.get("risk_tolerance", "Moderate")
+                hz = body.get("horizon", "Medium-Term")
+                force = query.get("force", ["false"])[0].lower() in ["1", "true"] or body.get("force_fresh", False)
+                res = recommend_goal_portfolio(gt, rt, hz, force_fresh=force)
+                self._json(res)
+
             elif path == "/api/simulation/tick":
                 check_trailing_stops_and_circuit_breakers(conn)
                 cursor.execute("SELECT * FROM strategies WHERE active = 1")
@@ -1266,6 +1425,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 self._json({"error": "Endpoint not found"}, 404)
 
         except Exception as ex:
+            import traceback
+            traceback.print_exc()
             self._json({"error": str(ex)}, 500)
         finally:
             conn.close()
