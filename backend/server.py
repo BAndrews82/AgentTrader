@@ -3,9 +3,11 @@ import socketserver
 import json
 import sqlite3
 import urllib.parse
+import urllib.request
 import os
 import math
 import random
+import hashlib
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -268,16 +270,26 @@ POPULAR = {
     "AMD": {"name": "Advanced Micro Devices", "asset_type": "Stock", "base": 154.20}
 }
 
+def _get_symbol_random(symbol, offset=0):
+    hour_key = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H")
+    seed_str = f"{symbol}_{hour_key}_{offset}"
+    h = int(hashlib.md5(seed_str.encode('utf-8')).hexdigest(), 16)
+    return (h % 100000) / 100000.0
+
 def get_quote(symbol):
     sym = symbol.strip().upper()
     info = POPULAR.get(sym, {"name": f"{sym} Corp", "asset_type": "Stock", "base": 150.0})
     base = info["base"]
     
-    change_pct = (random.random() - 0.47) * 0.025
+    r1 = _get_symbol_random(sym, 1)
+    r2 = _get_symbol_random(sym, 2)
+    
+    change_pct = (r1 - 0.47) * 0.025
     curr = round(base * (1 + change_pct), 2)
     prev = round(base, 2)
     chg = round(curr - prev, 2)
     pct = round((chg / prev * 100) if prev else 0.0, 2)
+    vol = int(1000000 + (r2 * 8000000))
     
     return {
         "symbol": sym,
@@ -289,7 +301,7 @@ def get_quote(symbol):
         "percent_change": pct,
         "day_high": round(max(curr, prev) * 1.012, 2),
         "day_low": round(min(curr, prev) * 0.988, 2),
-        "volume": random.randint(1000000, 9000000),
+        "volume": vol,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
@@ -482,12 +494,19 @@ def get_candles(symbol, days=90):
         dt = now - timedelta(days=i)
         if dt.weekday() >= 5:
             continue
-        ret = (random.random() - 0.485) * 0.035
+        
+        seed_str = f"{sym}_{dt.strftime('%Y-%m-%d')}"
+        h_val = int(hashlib.md5(seed_str.encode('utf-8')).hexdigest(), 16)
+        r_ret = ((h_val % 1000) / 1000.0 - 0.485) * 0.035
+        r_high = (((h_val >> 4) % 1000) / 1000.0) * 0.015
+        r_low = (((h_val >> 8) % 1000) / 1000.0) * 0.015
+        r_vol = 1500000 + (((h_val >> 12) % 10000) * 750)
+        
         open_p = curr
-        close_p = open_p * (1 + ret)
-        high_p = max(open_p, close_p) * (1 + random.random() * 0.015)
-        low_p = min(open_p, close_p) * (1 - random.random() * 0.015)
-        vol = random.randint(1500000, 9000000)
+        close_p = open_p * (1 + r_ret)
+        high_p = max(open_p, close_p) * (1 + r_high)
+        low_p = min(open_p, close_p) * (1 - r_low)
+        vol = int(r_vol)
         curr = close_p
         
         candles.append({
@@ -633,9 +652,46 @@ def calculate_indicators(candles):
         "signals": signals
     }
 
+AGENT_ANALYSIS_CACHE = {}
+
+def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI Agent."):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    
+    models = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-pro-latest"]
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "generationConfig": {"responseMimeType": "application/json"}
+        }
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            res = urllib.request.urlopen(req, timeout=4)
+            data = json.loads(res.read().decode('utf-8'))
+            text = data["candidates"][0]["content"]["parts"][0]["text"]
+            return json.loads(text)
+        except Exception as e:
+            print(f"Gemini API model {m} notice: {e}")
+    return None
+
 # --- MULTI-AGENT SYNTHESIS WITH RISK MANAGER VETO POWER ---
 def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
     sym = symbol.strip().upper()
+    now_ts = time.time()
+    
+    cache_key = f"{sym}_{veto_enabled}"
+    if cache_key in AGENT_ANALYSIS_CACHE:
+        cached_ts, cached_res = AGENT_ANALYSIS_CACHE[cache_key]
+        if now_ts - cached_ts < 60:
+            return cached_res
+
     quote = get_quote(sym)
     candles = get_candles(sym, 90)
     ind = calculate_indicators(candles)
@@ -702,6 +758,9 @@ def analyze_symbol_agents(symbol, weights=None, veto_enabled=True):
         "stop_loss": round(price * 0.95, 2),
         "take_profit": round(price * 1.10, 2)
     }
+
+    AGENT_ANALYSIS_CACHE[cache_key] = (now_ts, res)
+    return res
 
 # --- TRAILING STOP LOSS & CIRCUIT BREAKER EVALUATOR ---
 def check_trailing_stops_and_circuit_breakers(conn):
