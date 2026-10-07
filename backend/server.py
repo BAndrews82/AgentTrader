@@ -10,6 +10,11 @@ import random
 import hashlib
 import threading
 import time
+import sys
+import subprocess
+import shutil
+import atexit
+import signal
 from datetime import datetime, timedelta, timezone
 
 PORT = 8000
@@ -1517,12 +1522,77 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         finally:
             conn.close()
 
+OLLAMA_SUBPROCESS = None
+
+def start_ollama_process():
+    global OLLAMA_SUBPROCESS
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+        with urllib.request.urlopen(req, timeout=1.5) as res:
+            if res.status == 200:
+                print("Local Ollama AI service is active on http://127.0.0.1:11434")
+                return True
+    except Exception:
+        pass
+
+    ollama_path = shutil.which("ollama") or "/usr/local/bin/ollama"
+    if os.path.exists(ollama_path) or shutil.which("ollama"):
+        try:
+            print("Auto-starting local Ollama service for Qwen 2.5 Coder fallback...")
+            OLLAMA_SUBPROCESS = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            for _ in range(6):
+                time.sleep(0.5)
+                try:
+                    req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+                    with urllib.request.urlopen(req, timeout=1.0) as res:
+                        if res.status == 200:
+                            print(f"Started Ollama background server (PID: {OLLAMA_SUBPROCESS.pid}) for Qwen 2.5 Coder")
+                            return True
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Could not auto-start Ollama: {e}")
+    return False
+
+def stop_ollama_process():
+    global OLLAMA_SUBPROCESS
+    if OLLAMA_SUBPROCESS and OLLAMA_SUBPROCESS.poll() is None:
+        print(f"\nShutting down local Ollama background process (PID: {OLLAMA_SUBPROCESS.pid})...")
+        try:
+            OLLAMA_SUBPROCESS.terminate()
+            OLLAMA_SUBPROCESS.wait(timeout=3)
+        except Exception:
+            OLLAMA_SUBPROCESS.kill()
+        print("Ollama process stopped cleanly.")
+        OLLAMA_SUBPROCESS = None
+
+atexit.register(stop_ollama_process)
+
 def run():
     init_db()
+    start_ollama_process()
     socketserver.TCPServer.allow_reuse_address = True
     server = socketserver.TCPServer(("0.0.0.0", PORT), RequestHandler)
     print(f"AgentTrader v2.0 running on http://localhost:{PORT}")
-    server.serve_forever()
+
+    def handle_signal(sig, frame):
+        print("\nShutdown signal received. Cleaning up...")
+        stop_ollama_process()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_ollama_process()
 
 if __name__ == "__main__":
     run()
