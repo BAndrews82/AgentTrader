@@ -85,6 +85,9 @@
       const [agentLoading, setAgentLoading] = useState(false);
 
       const [tradeModalSymbol, setTradeModalSymbol] = useState(null);
+      const [profileModalSymbol, setProfileModalSymbol] = useState(null);
+      const [profileData, setProfileData] = useState(null);
+      const [profileLoading, setProfileLoading] = useState(false);
       const [simLoading, setSimLoading] = useState(false);
       const [evaluations, setEvaluations] = useState([]);
       const [searchQuery, setSearchQuery] = useState('');
@@ -250,6 +253,23 @@
           await fetchData();
         } catch (e) {
           console.error(e);
+        }
+      };
+
+      const openProfile = async (sym) => {
+        if (!sym) return;
+        const targetSym = sym.toUpperCase();
+        setProfileModalSymbol(targetSym);
+        setProfileLoading(true);
+        try {
+          const res = await fetch(`/api/market/profile/${targetSym}`);
+          if (res.ok) {
+            setProfileData(await res.json());
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setProfileLoading(false);
         }
       };
 
@@ -456,11 +476,29 @@
                         className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white mono uppercase focus:outline-none focus:border-blue-500"
                       />
                       {searchResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-xl z-50 divide-y divide-slate-800 max-h-48 overflow-y-auto shadow-2xl">
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-slate-900 border border-slate-800 rounded-xl z-50 divide-y divide-slate-800 max-h-60 overflow-y-auto shadow-2xl">
                           {searchResults.map(s => (
-                            <div key={s.symbol} onClick={() => addWatchlist(s.symbol)} className="p-2.5 hover:bg-slate-800 cursor-pointer flex justify-between text-xs">
-                              <span className="font-bold mono text-white">{s.symbol} ({s.name})</span>
-                              <span className="badge badge-blue">+ Add {s.asset_type}</span>
+                            <div key={s.symbol} className="p-3 hover:bg-slate-800/80 flex items-center justify-between text-xs transition-colors">
+                              <div>
+                                <span className="font-bold mono text-white">{s.symbol}</span>
+                                <span className="ml-2 text-slate-400 text-[11px] truncate max-w-[140px] inline-block align-bottom">{s.name}</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); openProfile(s.symbol); }}
+                                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg font-semibold text-[11px] transition-all flex items-center gap-1"
+                                >
+                                  ℹ️ Info
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); addWatchlist(s.symbol); }}
+                                  className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-lg font-semibold text-[11px] transition-all flex items-center gap-1"
+                                >
+                                  ➕ Add
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -495,9 +533,10 @@
                           <span className="text-xl font-bold mono text-white">${q.current_price?.toFixed(2) || '150.00'}</span>
                           <span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${q.change?.toFixed(2)} ({isG ? '+' : ''}{q.percent_change?.toFixed(2)}%)</span>
                         </div>
-                        <div className="flex gap-2 pt-1">
-                          <button onClick={() => { runAgentAnalysis(item.symbol); setActiveTab('agents'); }} className="flex-1 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold">🤖 AI Debate</button>
-                          <button onClick={() => setTradeModalSymbol(item.symbol)} className="py-1.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold">🛍️ Trade</button>
+                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          <button onClick={() => openProfile(item.symbol)} className="py-1.5 px-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold flex items-center justify-center gap-1">ℹ️ Info</button>
+                          <button onClick={() => { runAgentAnalysis(item.symbol); setActiveTab('agents'); }} className="py-1.5 px-2 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 rounded text-xs font-semibold flex items-center justify-center gap-1">🤖 Debate</button>
+                          <button onClick={() => setTradeModalSymbol(item.symbol)} className="py-1.5 px-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 border border-blue-500/30 rounded text-xs font-semibold flex items-center justify-center gap-1">🛍️ Trade</button>
                         </div>
                       </div>
                     );
@@ -763,6 +802,172 @@
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {/* STOCK PROFILE & RELATED STOCKS MODAL */}
+            {profileModalSymbol && (
+              <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="glass-card max-w-3xl w-full p-6 space-y-6 border-purple-500/40 my-8 shadow-2xl relative">
+
+                  {/* Modal Header */}
+                  <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-black text-white mono">{profileModalSymbol}</h2>
+                        <span className={`badge ${profileData?.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'} text-xs px-2.5 py-0.5`}>
+                          {profileData?.asset_type || 'Stock'}
+                        </span>
+                        {profileData?.sector && (
+                          <span className="badge bg-slate-800 text-slate-300 border border-slate-700 text-xs px-2.5 py-0.5">
+                            {profileData.sector}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-400 font-medium mt-1">{profileData?.name || profileModalSymbol}</p>
+                    </div>
+                    <button
+                      onClick={() => { setProfileModalSymbol(null); setProfileData(null); }}
+                      className="text-slate-400 hover:text-white p-2 rounded-xl bg-slate-900 border border-slate-800 text-sm font-bold"
+                    >
+                      ✕ Close
+                    </button>
+                  </div>
+
+                  {profileLoading ? (
+                    <div className="p-12 text-center text-purple-400 text-sm animate-pulse flex items-center justify-center gap-2">
+                      ⚡ Loading complete company profile & financial fundamentals...
+                    </div>
+                  ) : profileData && (
+                    <div className="space-y-6">
+
+                      {/* Current Price & Day Change */}
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-900/80 p-4 rounded-xl border border-slate-800 gap-4">
+                        <div>
+                          <span className="text-xs text-slate-400 block">Current Market Price</span>
+                          <span className="text-3xl font-black text-white mono">${profileData.current_price?.toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className={`px-3 py-1 rounded-lg text-sm font-bold mono ${profileData.change >= 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
+                            {profileData.change >= 0 ? '+' : ''}${profileData.change?.toFixed(2)} ({profileData.change >= 0 ? '+' : ''}{profileData.percent_change?.toFixed(2)}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Company Overview Description */}
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Company Overview & Business Model</h3>
+                        <p className="text-xs text-slate-300 bg-slate-950/60 p-4 rounded-xl border border-slate-800 leading-relaxed">
+                          {profileData.description}
+                        </p>
+                      </div>
+
+                      {/* Fundamental Financial Metrics Grid */}
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Key Financial Fundamentals</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">Market Cap</span>
+                            <strong className="text-white mono text-sm font-bold">
+                              {profileData.market_cap >= 1e12 ? `$${(profileData.market_cap / 1e12).toFixed(2)}T` : (profileData.market_cap >= 1e9 ? `$${(profileData.market_cap / 1e9).toFixed(2)}B` : `$${(profileData.market_cap / 1e6).toFixed(2)}M`)}
+                            </strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">P/E Ratio (TTM)</span>
+                            <strong className="text-white mono text-sm font-bold">{profileData.pe_ratio}x</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">Forward P/E</span>
+                            <strong className="text-white mono text-sm font-bold">{profileData.forward_pe}x</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">Dividend Yield</span>
+                            <strong className="text-emerald-400 mono text-sm font-bold">{profileData.dividend_yield}%</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">Beta Volatility</span>
+                            <strong className="text-white mono text-sm font-bold">{profileData.beta}</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">EPS (TTM)</span>
+                            <strong className="text-white mono text-sm font-bold">${profileData.eps}</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">52-Wk High</span>
+                            <strong className="text-white mono text-sm font-bold">${profileData.week52_high}</strong>
+                          </div>
+
+                          <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                            <span className="text-slate-400 block">52-Wk Low</span>
+                            <strong className="text-white mono text-sm font-bold">${profileData.week52_low}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Related Competitors & Similar Stocks */}
+                      {profileData.related_stocks && profileData.related_stocks.length > 0 && (
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                            🔗 Related Stocks & Competitors
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {profileData.related_stocks.map(rel => (
+                              <div key={rel.symbol} className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 flex justify-between items-center text-xs">
+                                <div>
+                                  <span className="font-bold mono text-white text-sm">{rel.symbol}</span>
+                                  <span className="ml-2 text-[10px] text-slate-400">{rel.name}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => openProfile(rel.symbol)}
+                                    className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 rounded-lg text-[11px] font-semibold flex items-center gap-1"
+                                  >
+                                    ℹ️ Info
+                                  </button>
+                                  <button
+                                    onClick={() => addWatchlist(rel.symbol)}
+                                    className="px-2.5 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-lg text-[11px] font-semibold flex items-center gap-1"
+                                  >
+                                    ➕ Add
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Footer Buttons */}
+                      <div className="flex flex-wrap gap-3 border-t border-slate-800 pt-4">
+                        <button
+                          onClick={() => { addWatchlist(profileModalSymbol); }}
+                          className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-bold text-xs rounded-xl shadow-lg hover:from-blue-500 hover:to-cyan-500 transition-all flex items-center gap-1.5"
+                        >
+                          ➕ Add {profileModalSymbol} to Watchlist
+                        </button>
+                        <button
+                          onClick={() => { runAgentAnalysis(profileModalSymbol); setActiveTab('agents'); setProfileModalSymbol(null); }}
+                          className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-lg hover:from-purple-500 hover:to-blue-500 transition-all flex items-center gap-1.5"
+                        >
+                          🤖 Run AI Debate
+                        </button>
+                        <button
+                          onClick={() => { setTradeModalSymbol(profileModalSymbol); setProfileModalSymbol(null); }}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition-all flex items-center gap-1.5"
+                        >
+                          🛍️ Trade {profileModalSymbol}
+                        </button>
+                      </div>
+
+                    </div>
+                  )}
                 </div>
               </div>
             )}

@@ -293,6 +293,183 @@ def get_quote(symbol):
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
+PROFILES = {
+    "AAPL": {
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "description": "Apple Inc. designs, manufactures, and markets smartphones (iPhone), personal computers (Mac), tablets (iPad), wearables, and accessories, alongside digital services like Apple Music, iCloud, and Apple Pay.",
+        "market_cap": 3450000000000.0,
+        "pe_ratio": 33.5,
+        "forward_pe": 28.4,
+        "eps": 6.57,
+        "dividend_yield": 0.52,
+        "beta": 1.08,
+        "week52_high": 237.23,
+        "week52_low": 164.08,
+        "volume_24h": 48200000,
+        "avg_volume": 52100000,
+        "related_stocks": [
+            {"symbol": "MSFT", "name": "Microsoft Corporation", "asset_type": "Stock"},
+            {"symbol": "GOOGL", "name": "Alphabet Inc.", "asset_type": "Stock"},
+            {"symbol": "NVDA", "name": "NVIDIA Corporation", "asset_type": "Stock"},
+            {"symbol": "AMZN", "name": "Amazon.com Inc.", "asset_type": "Stock"}
+        ]
+    },
+    "NVDA": {
+        "sector": "Technology",
+        "industry": "Semiconductors & AI Hardware",
+        "description": "NVIDIA Corporation pioneers accelerated computing and GPU hardware, fueling generative AI models, data centers, autonomous vehicles, and high-performance gaming technologies worldwide.",
+        "market_cap": 3120000000000.0,
+        "pe_ratio": 64.2,
+        "forward_pe": 38.1,
+        "eps": 1.90,
+        "dividend_yield": 0.03,
+        "beta": 1.68,
+        "week52_high": 140.76,
+        "week52_low": 39.23,
+        "volume_24h": 84100000,
+        "avg_volume": 79400000,
+        "related_stocks": [
+            {"symbol": "AMD", "name": "Advanced Micro Devices", "asset_type": "Stock"},
+            {"symbol": "INTC", "name": "Intel Corporation", "asset_type": "Stock"},
+            {"symbol": "TSM", "name": "Taiwan Semiconductor", "asset_type": "Stock"},
+            {"symbol": "AVGO", "name": "Broadcom Inc.", "asset_type": "Stock"}
+        ]
+    },
+    "MSFT": {
+        "sector": "Technology",
+        "industry": "Systems Software & Cloud",
+        "description": "Microsoft Corporation develops cloud computing (Azure), enterprise software (Windows, Office 365), cybersecurity, developer tools (GitHub), and consumer technology (Xbox, Surface).",
+        "market_cap": 3080000000000.0,
+        "pe_ratio": 34.8,
+        "forward_pe": 29.1,
+        "eps": 11.80,
+        "dividend_yield": 0.72,
+        "beta": 0.89,
+        "week52_high": 468.35,
+        "week52_low": 327.00,
+        "volume_24h": 21500000,
+        "avg_volume": 23000000,
+        "related_stocks": [
+            {"symbol": "AAPL", "name": "Apple Inc.", "asset_type": "Stock"},
+            {"symbol": "GOOGL", "name": "Alphabet Inc.", "asset_type": "Stock"},
+            {"symbol": "AMZN", "name": "Amazon.com Inc.", "asset_type": "Stock"},
+            {"symbol": "ORCL", "name": "Oracle Corporation", "asset_type": "Stock"}
+        ]
+    },
+    "SPY": {
+        "sector": "Financial / Broad Market",
+        "industry": "Index ETF (S&P 500)",
+        "description": "The SPDR S&P 500 ETF Trust seeks to provide investment results that correspond generally to the price and yield performance of the S&P 500 Index, representing 500 leading U.S. large-cap companies.",
+        "market_cap": 560000000000.0,
+        "pe_ratio": 27.2,
+        "forward_pe": 22.1,
+        "eps": 21.40,
+        "dividend_yield": 1.25,
+        "beta": 1.00,
+        "week52_high": 565.16,
+        "week52_low": 410.00,
+        "volume_24h": 62400000,
+        "avg_volume": 65000000,
+        "related_stocks": [
+            {"symbol": "VOO", "name": "Vanguard S&P 500 ETF", "asset_type": "ETF"},
+            {"symbol": "QQQ", "name": "Invesco QQQ Trust", "asset_type": "ETF"},
+            {"symbol": "IWM", "name": "iShares Russell 2000 ETF", "asset_type": "ETF"},
+            {"symbol": "SCHD", "name": "Schwab U.S. Dividend ETF", "asset_type": "ETF"}
+        ]
+    },
+    "QQQ": {
+        "sector": "Financial / Tech Index",
+        "industry": "Index ETF (Nasdaq 100)",
+        "description": "Invesco QQQ Trust is an exchange-traded fund that tracks the Nasdaq-100 Index, holding top non-financial innovative technology leaders including Apple, Microsoft, NVIDIA, Amazon, and Alphabet.",
+        "market_cap": 285000000000.0,
+        "pe_ratio": 31.4,
+        "forward_pe": 26.8,
+        "eps": 15.20,
+        "dividend_yield": 0.58,
+        "beta": 1.18,
+        "week52_high": 503.52,
+        "week52_low": 350.00,
+        "volume_24h": 38100000,
+        "avg_volume": 42000000,
+        "related_stocks": [
+            {"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF"},
+            {"symbol": "VOO", "name": "Vanguard S&P 500 ETF", "asset_type": "ETF"},
+            {"symbol": "NVDA", "name": "NVIDIA Corporation", "asset_type": "Stock"},
+            {"symbol": "AAPL", "name": "Apple Inc.", "asset_type": "Stock"}
+        ]
+    },
+    "TSLA": {
+        "sector": "Consumer Cyclical",
+        "industry": "Electric Vehicles & Clean Energy",
+        "description": "Tesla, Inc. designs, manufactures, sells, and leases electric vehicles (Model S 3 X Y, Cybertruck), stationary energy storage systems (Powerwall, Megapack), and solar energy solutions.",
+        "market_cap": 780000000000.0,
+        "pe_ratio": 72.4,
+        "forward_pe": 55.0,
+        "eps": 3.40,
+        "dividend_yield": 0.00,
+        "beta": 2.34,
+        "week52_high": 271.00,
+        "week52_low": 138.80,
+        "volume_24h": 72000000,
+        "avg_volume": 85000000,
+        "related_stocks": [
+            {"symbol": "RIVN", "name": "Rivian Automotive", "asset_type": "Stock"},
+            {"symbol": "LCID", "name": "Lucid Group", "asset_type": "Stock"},
+            {"symbol": "F", "name": "Ford Motor Company", "asset_type": "Stock"},
+            {"symbol": "GM", "name": "General Motors", "asset_type": "Stock"}
+        ]
+    },
+    "SCHD": {
+        "sector": "Financial / Dividend",
+        "industry": "Dividend ETF",
+        "description": "Schwab U.S. Dividend Equity ETF tracks the Dow Jones U.S. Dividend 100 Index, focusing on high dividend yield fundamentals, strong cash flow, and dividend growth history.",
+        "market_cap": 58000000000.0,
+        "pe_ratio": 16.4,
+        "forward_pe": 14.8,
+        "eps": 5.02,
+        "dividend_yield": 3.42,
+        "beta": 0.78,
+        "week52_high": 84.50,
+        "week52_low": 68.20,
+        "volume_24h": 3200000,
+        "avg_volume": 3800000,
+        "related_stocks": [
+            {"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF"},
+            {"symbol": "VOO", "name": "Vanguard S&P 500 ETF", "asset_type": "ETF"},
+            {"symbol": "VYM", "name": "Vanguard High Dividend Yield", "asset_type": "ETF"},
+            {"symbol": "DGRO", "name": "iShares Core Dividend Growth", "asset_type": "ETF"}
+        ]
+    }
+}
+
+def get_stock_profile(symbol):
+    sym = symbol.strip().upper()
+    quote = get_quote(sym)
+    prof = PROFILES.get(sym, {
+        "sector": "Equity / Capital Markets",
+        "industry": f"{quote['asset_type']} Asset Class",
+        "description": f"{quote['name']} ({sym}) is an active publicly traded asset. Its price trends are monitored real-time by AgentTrader Gemini 3.8 Flash technical and risk consensus agents.",
+        "market_cap": round(quote["current_price"] * 1250000000.0, 2),
+        "pe_ratio": 24.8,
+        "forward_pe": 20.5,
+        "eps": round(quote["current_price"] / 24.8, 2),
+        "dividend_yield": 1.15 if quote["asset_type"] == "ETF" else 0.65,
+        "beta": 1.05,
+        "week52_high": round(quote["current_price"] * 1.18, 2),
+        "week52_low": round(quote["current_price"] * 0.82, 2),
+        "volume_24h": quote["volume"],
+        "avg_volume": int(quote["volume"] * 1.1),
+        "related_stocks": [
+            {"symbol": "SPY", "name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF"},
+            {"symbol": "QQQ", "name": "Invesco QQQ Trust", "asset_type": "ETF"},
+            {"symbol": "NVDA", "name": "NVIDIA Corporation", "asset_type": "Stock"},
+            {"symbol": "AAPL", "name": "Apple Inc.", "asset_type": "Stock"}
+        ]
+    })
+    
+    return {**quote, **prof}
+
 def get_candles(symbol, days=90):
     sym = symbol.strip().upper()
     base = POPULAR.get(sym, {}).get("base", 150.0)
@@ -751,6 +928,10 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             elif path.startswith("/api/market/quote/"):
                 sym = path.split("/")[-1]
                 self._json(get_quote(sym))
+
+            elif path.startswith("/api/market/profile/"):
+                sym = path.split("/")[-1]
+                self._json(get_stock_profile(sym))
 
             elif path.startswith("/api/market/candles/"):
                 sym = path.split("/")[-1]
