@@ -173,6 +173,21 @@ def init_db():
             prompt_risk TEXT DEFAULT 'Evaluate portfolio drawdown risk, calculate 5% trailing stops, position limits, and risk-to-reward ratio.'
         )
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS goal_portfolios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_text TEXT NOT NULL,
+            risk_tolerance TEXT DEFAULT 'Moderate',
+            horizon TEXT DEFAULT 'Medium-Term',
+            portfolio_name TEXT NOT NULL,
+            overall_thesis TEXT,
+            recommended_assets_json TEXT,
+            risk_summary TEXT,
+            execution_source TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     # Seed default account
     cursor.execute("SELECT COUNT(*) FROM account")
@@ -973,6 +988,17 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         GOAL_PORTFOLIO_CACHE[cache_key] = (now_ts, res)
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO goal_portfolios (goal_text, risk_tolerance, horizon, portfolio_name, overall_thesis, recommended_assets_json, risk_summary, execution_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (goal_clean, risk_tolerance, horizon, res["portfolio_name"], res["overall_thesis"], json.dumps(res["recommended_assets"]), res["risk_summary"], source_lbl))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Goal portfolio DB save notice: {e}")
         return res
 
     fallback_assets = get_deterministic_goal_assets(goal_clean, risk_tolerance)
@@ -992,6 +1018,17 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     GOAL_PORTFOLIO_CACHE[cache_key] = (now_ts, res)
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO goal_portfolios (goal_text, risk_tolerance, horizon, portfolio_name, overall_thesis, recommended_assets_json, risk_summary, execution_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (goal_clean, risk_tolerance, horizon, res["portfolio_name"], res["overall_thesis"], json.dumps(res["recommended_assets"]), res["risk_summary"], "DETERMINISTIC_INDICATOR_ENGINE"))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Goal portfolio DB save notice: {e}")
     return res
 
 # --- TRAILING STOP LOSS & CIRCUIT BREAKER EVALUATOR ---
@@ -1182,6 +1219,17 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 cursor.execute("SELECT * FROM agent_config LIMIT 1")
                 cfg = cursor.fetchone()
                 self._json(dict(cfg) if cfg else {})
+
+            elif path == "/api/agents/goal_portfolios":
+                cursor.execute("SELECT * FROM goal_portfolios ORDER BY created_at DESC LIMIT 20")
+                rows = [dict(r) for r in cursor.fetchall()]
+                for r in rows:
+                    if r.get("recommended_assets_json"):
+                        try:
+                            r["recommended_assets"] = json.loads(r["recommended_assets_json"])
+                        except Exception:
+                            r["recommended_assets"] = []
+                self._json(rows)
 
             elif path == "/api/portfolio/snapshots":
                 cursor.execute("SELECT * FROM portfolio_snapshots ORDER BY timestamp ASC LIMIT 100")

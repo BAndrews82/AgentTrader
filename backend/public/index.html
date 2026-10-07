@@ -93,9 +93,11 @@
       const [searchQuery, setSearchQuery] = useState('');
       const [searchResults, setSearchResults] = useState([]);
 
+      const [savedGoalPortfolios, setSavedGoalPortfolios] = useState([]);
+
       const fetchData = async () => {
         try {
-          const [p, s, w, st, o, l, wh, ac] = await Promise.all([
+          const [p, s, w, st, o, l, wh, ac, gp] = await Promise.all([
             fetch('/api/portfolio').then(r => r.json()),
             fetch('/api/portfolio/snapshots').then(r => r.json()),
             fetch('/api/watchlist').then(r => r.json()),
@@ -103,7 +105,8 @@
             fetch('/api/orders').then(r => r.json()),
             fetch('/api/agents/logs').then(r => r.json()),
             fetch('/api/webhooks').then(r => r.json()),
-            fetch('/api/agents/config').then(r => r.json())
+            fetch('/api/agents/config').then(r => r.json()),
+            fetch('/api/agents/goal_portfolios').then(r => r.json())
           ]);
           setPortfolio(p);
           setSnapshots(s);
@@ -113,6 +116,7 @@
           setAgentLogs(l);
           setWebhooks(wh);
           setAgentConfig(ac);
+          setSavedGoalPortfolios(gp || []);
         } catch (e) {
           console.error(e);
         }
@@ -1134,6 +1138,54 @@
                       <p className="text-slate-400 leading-relaxed">{goalResult.risk_summary}</p>
                     </div>
 
+                  </div>
+                )}
+
+                {/* 📜 SAVED GOAL PORTFOLIOS HISTORY IN SQLITE */}
+                {savedGoalPortfolios && savedGoalPortfolios.length > 0 && (
+                  <div className="glass-card p-6 border-slate-800 space-y-4">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                          📜 Saved Goal Portfolios History ({savedGoalPortfolios.length})
+                        </h3>
+                        <p className="text-xs text-slate-400">Past AI-generated goal portfolios persisted in SQLite database</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                      {savedGoalPortfolios.map((gp, idx) => (
+                        <div key={idx} className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-purple-500/30 transition-all">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <strong className="text-white text-sm font-bold">{gp.portfolio_name}</strong>
+                              <span className="badge badge-purple">{gp.risk_tolerance}</span>
+                              <span className="badge badge-blue">{gp.horizon}</span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 italic">"{gp.goal_text}"</p>
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {gp.recommended_assets?.map((a, aIdx) => (
+                                <span key={aIdx} className="px-2 py-0.5 bg-slate-950 text-purple-300 rounded text-[11px] font-mono border border-slate-800">
+                                  {a.symbol} ({a.allocation_percent}%)
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {new Date(gp.created_at).toLocaleDateString()}
+                            </span>
+                            <button
+                              onClick={() => { setGoalResult(gp); window.scrollTo({ top: 300, behavior: 'smooth' }); }}
+                              className="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/40 rounded-lg text-xs font-semibold"
+                            >
+                              📂 Open Portfolio
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
