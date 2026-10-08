@@ -191,31 +191,73 @@
       };
 
       const handleAllocateGoalPortfolio = async () => {
-        if (!goalResult || !goalResult.recommended_assets) return;
-        if (!confirm(`Allocate $${allocateCapital.toLocaleString()} paper capital across ${goalResult.recommended_assets.length} recommended assets?`)) return;
+        if (!goalResult || !goalResult.recommended_assets || !goalResult.recommended_assets.length) {
+          alert("No assets found in selected goal portfolio.");
+          return;
+        }
+
+        const availableCash = portfolio ? portfolio.cash_balance : 100000;
+        let targetCapital = allocateCapital;
+
+        if (targetCapital > availableCash) {
+          if (confirm(`Target allocation ($${targetCapital.toLocaleString()}) exceeds your available cash ($${availableCash.toLocaleString()}). Allocate available cash ($${availableCash.toLocaleString()}) instead?`)) {
+            targetCapital = availableCash;
+            setAllocateCapital(targetCapital);
+          } else {
+            return;
+          }
+        }
+
+        if (!confirm(`Allocate $${targetCapital.toLocaleString()} paper capital across ${goalResult.recommended_assets.length} recommended assets?`)) return;
+
         try {
+          let ordersPlaced = 0;
           for (const item of goalResult.recommended_assets) {
-            const dollars = (allocateCapital * (item.allocation_percent / 100.0));
-            const shares = Math.max(0.001, parseFloat((dollars / item.current_price).toFixed(4)));
-            if (shares > 0) {
-              await fetch('/api/orders', {
+            const allocPct = parseFloat(item.allocation_percent) || (100.0 / goalResult.recommended_assets.length);
+            const dollars = targetCapital * (allocPct / 100.0);
+            
+            let price = parseFloat(item.current_price);
+            if (!price || isNaN(price) || price <= 0) {
+              const q = await fetch(`/api/market/quote/${item.symbol}`).then(r => r.json());
+              price = q.current_price || 100.0;
+            }
+
+            const shares = Math.max(0.001, parseFloat((dollars / price).toFixed(4)));
+
+            if (shares > 0 && !isNaN(shares)) {
+              const res = await fetch('/api/orders', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   symbol: item.symbol,
                   side: 'BUY',
                   shares: shares,
+                  price: price,
                   order_type: 'MARKET',
                   triggered_by: 'GOAL_PLANNER',
-                  reasoning: `Auto-allocated from Goal Portfolio: ${goalResult.portfolio_name} (${item.allocation_percent}% allocation)`
+                  reasoning: `Auto-allocated from Goal Portfolio: ${goalResult.portfolio_name} (${allocPct}% allocation)`
                 })
               });
+
+              if (res.ok) {
+                ordersPlaced++;
+              } else {
+                const err = await res.json();
+                console.error(`Order error for ${item.symbol}:`, err);
+                alert(`Order failed for ${item.symbol}: ${err.error || 'Server error'}`);
+              }
             }
           }
+
           await fetchData();
-          alert(`Successfully allocated $${allocateCapital.toLocaleString()} paper capital across ${goalResult.portfolio_name}!`);
+
+          if (ordersPlaced > 0) {
+            alert(`Successfully bought ${ordersPlaced} assets for $${targetCapital.toLocaleString()}! Switching to Portfolio Dashboard...`);
+            setActiveTab('dashboard');
+          }
         } catch (e) {
           console.error(e);
+          alert(`Allocation error: ${e.message}`);
         }
       };
 
