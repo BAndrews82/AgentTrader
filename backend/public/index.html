@@ -562,11 +562,11 @@
                                 </td>
                                 <td className="p-3"><span className={`badge ${pos.asset_type === 'ETF' ? 'badge-purple' : 'badge-blue'}`}>{pos.asset_type}</span></td>
                                 <td className="p-3 mono">{pos.shares}</td>
-                                <td className="p-3 mono">${pos.avg_cost.toFixed(2)}</td>
-                                <td className="p-3 mono font-semibold text-white">${pos.current_price.toFixed(2)}</td>
-                                <td className="p-3 mono text-slate-300">${pos.peak_price.toFixed(2)}</td>
-                                <td className="p-3 mono font-bold text-rose-400">${pos.trailing_stop_price.toFixed(2)}</td>
-                                <td className="p-3"><span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} ({isG ? '+' : ''}{pos.pnl_percent.toFixed(2)}%)</span></td>
+                                <td className="p-3 mono">${(pos.avg_cost || 0).toFixed(2)}</td>
+                                <td className="p-3 mono font-semibold text-white">${(pos.current_price || pos.avg_cost || 0).toFixed(2)}</td>
+                                <td className="p-3 mono text-slate-300">${(pos.peak_price || pos.current_price || pos.avg_cost || 0).toFixed(2)}</td>
+                                <td className="p-3 mono font-bold text-rose-400">${(pos.trailing_stop_price || (pos.peak_price ? pos.peak_price * 0.95 : (pos.avg_cost || 0) * 0.95) || 0).toFixed(2)}</td>
+                                <td className="p-3"><span className={`badge ${isG ? 'badge-gain' : 'badge-loss'} mono`}>{isG ? '+' : ''}${(pos.unrealized_pnl || 0).toFixed(2)} ({isG ? '+' : ''}{(pos.pnl_percent || 0).toFixed(2)}%)</span></td>
                                 <td className="p-3 text-right">
                                   <button onClick={() => setTradeModalSymbol(pos.symbol)} className="px-2.5 py-1 text-xs bg-rose-500/10 text-rose-400 border border-rose-500/30 rounded">Close</button>
                                 </td>

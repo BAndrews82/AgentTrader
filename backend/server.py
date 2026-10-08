@@ -104,6 +104,22 @@ def init_db():
         )
     """)
 
+    # Auto-migrate schema for existing SQLite databases
+    try:
+        cursor.execute("ALTER TABLE positions ADD COLUMN peak_price REAL DEFAULT 0.0")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE account ADD COLUMN circuit_breaker_active BOOLEAN DEFAULT 0")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("UPDATE positions SET peak_price = avg_cost WHERE peak_price IS NULL OR peak_price = 0.0")
+    except Exception:
+        pass
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
