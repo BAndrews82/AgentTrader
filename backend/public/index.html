@@ -190,6 +190,46 @@
         }
       };
 
+      const handleSaveGoalPortfolio = async () => {
+        if (!goalResult) return;
+        try {
+          const res = await fetch('/api/agents/save_goal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              goal_text: goalResult.goal_text || goalText,
+              risk_tolerance: goalResult.risk_tolerance || riskTolerance,
+              horizon: goalResult.horizon || horizon,
+              portfolio_name: goalResult.portfolio_name,
+              overall_thesis: goalResult.overall_thesis,
+              recommended_assets: goalResult.recommended_assets,
+              risk_summary: goalResult.risk_summary,
+              execution_source: goalResult.execution_source || 'MANUAL_SAVE'
+            })
+          });
+          if (res.ok) {
+            await fetchData();
+            alert(`Saved "${goalResult.portfolio_name}" to Goal Portfolios History!`);
+          }
+        } catch (e) {
+          console.error(e);
+          alert("Failed to save portfolio.");
+        }
+      };
+
+      const handleDeleteSavedGoalPortfolio = async (id, e) => {
+        if (e) e.stopPropagation();
+        if (!confirm("Delete this saved portfolio from history?")) return;
+        try {
+          const res = await fetch(`/api/agents/goal_portfolios/${id}`, { method: 'DELETE' });
+          if (res.ok) {
+            await fetchData();
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      };
+
       const handleAllocateGoalPortfolio = async () => {
         if (!goalResult || !goalResult.recommended_assets || !goalResult.recommended_assets.length) {
           alert("No assets found in selected goal portfolio.");
@@ -200,7 +240,7 @@
         let targetCapital = allocateCapital;
 
         if (targetCapital > availableCash) {
-          if (confirm(`Target allocation ($${targetCapital.toLocaleString()}) exceeds your available cash ($${availableCash.toLocaleString()}). Allocate available cash ($${availableCash.toLocaleString()}) instead?`)) {
+          if (confirm(`Target allocation ($${targetCapital.toLocaleString()}) exceeds available cash ($${availableCash.toLocaleString()}). Allocate available cash ($${availableCash.toLocaleString()}) instead?`)) {
             targetCapital = availableCash;
             setAllocateCapital(targetCapital);
           } else {
@@ -208,9 +248,25 @@
           }
         }
 
-        if (!confirm(`Allocate $${targetCapital.toLocaleString()} paper capital across ${goalResult.recommended_assets.length} recommended assets?`)) return;
+        if (!confirm(`Allocate $${targetCapital.toLocaleString()} paper capital across ${goalResult.recommended_assets.length} recommended assets? (This will also save this portfolio to history)`)) return;
 
         try {
+          // Auto-save to database upon trading
+          await fetch('/api/agents/save_goal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              goal_text: goalResult.goal_text || goalText,
+              risk_tolerance: goalResult.risk_tolerance || riskTolerance,
+              horizon: goalResult.horizon || horizon,
+              portfolio_name: goalResult.portfolio_name,
+              overall_thesis: goalResult.overall_thesis,
+              recommended_assets: goalResult.recommended_assets,
+              risk_summary: goalResult.risk_summary,
+              execution_source: goalResult.execution_source || 'AUTO_ALLOCATED'
+            })
+          });
+
           let ordersPlaced = 0;
           for (const item of goalResult.recommended_assets) {
             const allocPct = parseFloat(item.allocation_percent) || (100.0 / goalResult.recommended_assets.length);
@@ -252,7 +308,7 @@
           await fetchData();
 
           if (ordersPlaced > 0) {
-            alert(`Successfully bought ${ordersPlaced} assets for $${targetCapital.toLocaleString()}! Switching to Portfolio Dashboard...`);
+            alert(`Successfully bought ${ordersPlaced} assets ($${targetCapital.toLocaleString()}) and saved portfolio to history! Switching to Portfolio Dashboard...`);
             setActiveTab('dashboard');
           }
         } catch (e) {
@@ -260,6 +316,7 @@
           alert(`Allocation error: ${e.message}`);
         }
       };
+
 
       const [isForcing, setIsForcing] = useState(false);
 
@@ -956,9 +1013,14 @@
 
                   {/* Preset Idea Cards Bar */}
                   <div>
-                    <label className="block text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider">
-                      ⚡ Quick Preset Investment Theses (Click to Load)
-                    </label>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        ⚡ Quick Preset Investment Theses (Click to Prefill Input)
+                      </label>
+                      <span className="text-[11px] text-purple-400 italic">
+                        * Select thesis below, then click "Generate Goal Portfolio" to debate
+                      </span>
+                    </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
                       {[
                         { title: "🚀 AI & Semiconductors", text: "High Growth AI hardware, chips, and cloud infrastructure" },
@@ -967,16 +1029,24 @@
                         { title: "🛡️ Inflation & Volatility Hedge", text: "Low volatility defensive stocks, gold, and broad index ETFs" },
                         { title: "🌐 Web3 & Next-Gen Cloud", text: "Decentralized tech, cloud platforms, and cybersecurity" },
                         { title: "🏥 Healthcare Leaders", text: "Biotech breakthroughs, medical technology, and pharma" }
-                      ].map((preset, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => { setGoalText(preset.text); runGoalPlanner(preset.text, riskTolerance, horizon, false); }}
-                          className="p-3 bg-slate-900/80 hover:bg-purple-950/40 border border-slate-800 hover:border-purple-500/40 rounded-xl text-left transition-all group"
-                        >
-                          <div className="text-xs font-bold text-purple-300 group-hover:text-purple-200">{preset.title}</div>
-                          <div className="text-[10px] text-slate-400 line-clamp-2 mt-1">{preset.text}</div>
-                        </button>
-                      ))}
+                      ].map((preset, idx) => {
+                        const isSelected = goalText === preset.text;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setGoalText(preset.text)}
+                            className={`p-3 border rounded-xl text-left transition-all group relative ${isSelected ? 'bg-purple-950/60 border-purple-500 shadow-md shadow-purple-500/20' : 'bg-slate-900/80 hover:bg-purple-950/40 border-slate-800 hover:border-purple-500/40'}`}
+                          >
+                            <div className="text-xs font-bold text-purple-300 group-hover:text-purple-200">{preset.title}</div>
+                            <div className="text-[10px] text-slate-400 line-clamp-2 mt-1">{preset.text}</div>
+                            {isSelected && (
+                              <div className="mt-2 text-[9px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                ✓ Prefilled
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1025,9 +1095,16 @@
                       <button
                         onClick={() => runGoalPlanner(goalText, riskTolerance, horizon, false)}
                         disabled={goalLoading}
-                        className="flex-1 py-2 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-semibold text-xs rounded-xl shadow-lg transition-all"
+                        className={`flex-1 py-2 px-4 font-semibold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${goalLoading ? 'bg-purple-900/60 text-purple-300 border border-purple-500/50 cursor-not-allowed animate-pulse' : 'bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white'}`}
                       >
-                        {goalLoading ? (isGoalForcing ? '⚡ Contacting Gemini API...' : '🔍 Debating Portfolio...') : '⚡ Generate Goal Portfolio'}
+                        {goalLoading ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-purple-300 border-t-transparent rounded-full animate-spin"></div>
+                            <span>{isGoalForcing ? '⚡ Contacting Gemini API...' : '🔍 Debating Portfolio...'}</span>
+                          </>
+                        ) : (
+                          <span>⚡ Start Agent Debate</span>
+                        )}
                       </button>
                       <button
                         onClick={() => runGoalPlanner(goalText, riskTolerance, horizon, true)}
@@ -1042,8 +1119,46 @@
 
                 </div>
 
+                {/* ANIMATED DEBATE LOADING BANNER */}
+                {goalLoading && (
+                  <div className="bg-gradient-to-r from-purple-950/80 via-slate-900 to-purple-950/80 p-6 rounded-2xl border border-purple-500/50 shadow-2xl space-y-4 animate-pulse">
+                    <div className="flex items-center gap-3">
+                      <div className="w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin"></div>
+                      <h3 className="text-base font-bold text-purple-200">
+                        🤖 Gemini 3.8 Flash Multi-Agent Committee is Debating Portfolio...
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-300">
+                      Evaluating thesis: <span className="font-semibold text-white">"{goalText}"</span> under <span className="text-purple-300 font-semibold">{riskTolerance}</span> risk parameters.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-emerald-500/40 flex items-center gap-2.5 text-xs">
+                        <span className="text-lg animate-bounce">📈</span>
+                        <div>
+                          <strong className="text-emerald-400 block font-semibold">Technical Analyst</strong>
+                          <span className="text-[11px] text-slate-400">Scanning indicators & momentum...</span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-blue-500/40 flex items-center gap-2.5 text-xs">
+                        <span className="text-lg animate-bounce">📰</span>
+                        <div>
+                          <strong className="text-blue-400 block font-semibold">Sentiment Analyst</strong>
+                          <span className="text-[11px] text-slate-400">Reading macro news & social sentiment...</span>
+                        </div>
+                      </div>
+                      <div className="bg-slate-950/80 p-3 rounded-xl border border-purple-500/40 flex items-center gap-2.5 text-xs">
+                        <span className="text-lg animate-bounce">🛡️</span>
+                        <div>
+                          <strong className="text-purple-400 block font-semibold">Risk Manager</strong>
+                          <span className="text-[11px] text-slate-400">Enforcing volatility & stop loss limits...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Goal Result Cards & Debate Breakdown */}
-                {goalResult && (
+                {goalResult && !goalLoading && (
                   <div className="glass-card p-6 bg-gradient-to-r from-slate-900 via-purple-950/20 to-slate-900 border-purple-500/40 space-y-6">
                     
                     {/* Header & Execution Source */}
@@ -1066,35 +1181,58 @@
                       </div>
                     </div>
 
-                    {/* Action Toolbar for Recommended Portfolio */}
-                    <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    {/* Action Toolbar for Recommended Portfolio (TRADE / SAVE / DELETE) */}
+                    <div className="bg-slate-950/80 p-4 rounded-xl border border-purple-500/30 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 shadow-xl">
                       <div>
                         <div className="text-xs font-bold text-white flex items-center gap-2">
-                          🛍️ One-Click Auto-Allocate Paper Capital Across Portfolio
+                          🎯 Portfolio Action Options
                         </div>
-                        <p className="text-[11px] text-slate-400">Auto-calculate exact share quantities per stock according to allocation weight and execute paper market orders.</p>
+                        <p className="text-[11px] text-slate-400">Trade paper capital, explicitly save to history, or dismiss this debate.</p>
                       </div>
 
-                      <div className="flex items-center gap-2 w-full md:w-auto">
-                        <span className="text-xs text-slate-400 font-mono">$</span>
-                        <input
-                          type="number"
-                          step="500"
-                          value={allocateCapital}
-                          onChange={(e) => setAllocateCapital(parseFloat(e.target.value) || 0)}
-                          className="w-28 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white mono"
-                        />
+                      <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                        <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-lg border border-slate-800">
+                          <span className="text-xs text-slate-400 mono">$</span>
+                          <input
+                            type="number"
+                            step="500"
+                            value={allocateCapital}
+                            onChange={(e) => setAllocateCapital(parseFloat(e.target.value) || 0)}
+                            className="w-24 bg-transparent text-xs text-white mono focus:outline-none"
+                          />
+                        </div>
+
+                        {/* TRADE PORTFOLIO (EXECUTES & SAVES) */}
                         <button
                           onClick={handleAllocateGoalPortfolio}
-                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1 shrink-0"
+                          className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 shrink-0 transition-all"
                         >
-                          🛍️ Auto-Allocate Portfolio
+                          ⚡ Trade Portfolio (Auto-Allocate & Save)
                         </button>
+
+                        {/* SAVE PORTFOLIO */}
+                        <button
+                          onClick={handleSaveGoalPortfolio}
+                          className="px-3.5 py-2 bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 font-semibold text-xs rounded-xl transition-all flex items-center gap-1 shrink-0"
+                        >
+                          💾 Save Portfolio
+                        </button>
+
+                        {/* DELETE / DISMISS DEBATE */}
+                        <button
+                          onClick={() => setGoalResult(null)}
+                          className="px-3.5 py-2 bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/40 font-semibold text-xs rounded-xl transition-all flex items-center gap-1 shrink-0"
+                          title="Discard current debate result"
+                        >
+                          🗑️ Discard Debate
+                        </button>
+
+                        {/* ADD ALL TO WATCHLIST */}
                         <button
                           onClick={handleAddAllGoalToWatchlist}
-                          className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-500/30 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 shrink-0"
+                          className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-blue-300 border border-blue-500/30 font-semibold text-xs rounded-xl transition-all flex items-center gap-1 shrink-0"
                         >
-                          ➕ Add All to Watchlist
+                          ➕ Add to Watchlist
                         </button>
                       </div>
                     </div>
@@ -1223,7 +1361,20 @@
                               onClick={() => { setGoalResult(gp); window.scrollTo({ top: 300, behavior: 'smooth' }); }}
                               className="px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/40 rounded-lg text-xs font-semibold"
                             >
-                              📂 Open Portfolio
+                              📂 Open
+                            </button>
+                            <button
+                              onClick={() => { setGoalResult(gp); handleAllocateGoalPortfolio(); }}
+                              className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold"
+                            >
+                              🛍️ Trade
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteSavedGoalPortfolio(gp.id, e)}
+                              className="p-1.5 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 hover:border-rose-500/40 rounded-lg text-xs"
+                              title="Delete saved portfolio from database"
+                            >
+                              🗑️
                             </button>
                           </div>
                         </div>
@@ -1231,6 +1382,7 @@
                     </div>
                   </div>
                 )}
+
 
               </div>
             )}

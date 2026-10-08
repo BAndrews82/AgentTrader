@@ -1501,6 +1501,25 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 res = recommend_goal_portfolio(gt, rt, hz, force_fresh=force)
                 self._json(res)
 
+            elif path == "/api/agents/save_goal":
+                body = self._body()
+                gt = body.get("goal_text", "Saved Portfolio")
+                rt = body.get("risk_tolerance", "Moderate")
+                hz = body.get("horizon", "Medium-Term")
+                pn = body.get("portfolio_name", f"{gt} Strategy Portfolio")
+                ot = body.get("overall_thesis", "Saved goal portfolio strategy")
+                ra = body.get("recommended_assets", [])
+                rs = body.get("risk_summary", "Saved portfolio")
+                src = body.get("execution_source", "MANUAL_SAVE")
+
+                cursor.execute("""
+                    INSERT INTO goal_portfolios (goal_text, risk_tolerance, horizon, portfolio_name, overall_thesis, recommended_assets_json, risk_summary, execution_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (gt, rt, hz, pn, ot, json.dumps(ra), rs, src))
+                conn.commit()
+                gpid = cursor.lastrowid
+                self._json({"status": "success", "id": gpid, "message": "Saved goal portfolio to history"})
+
             elif path == "/api/simulation/tick":
                 check_trailing_stops_and_circuit_breakers(conn)
                 cursor.execute("SELECT * FROM strategies WHERE active = 1")
@@ -1583,6 +1602,11 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 cursor.execute("DELETE FROM strategies WHERE id = ?", (sid,))
                 conn.commit()
                 self._json({"message": "Strategy deleted"})
+            elif path.startswith("/api/agents/goal_portfolios/"):
+                gpid = path.split("/")[-1]
+                cursor.execute("DELETE FROM goal_portfolios WHERE id = ?", (gpid,))
+                conn.commit()
+                self._json({"message": "Goal portfolio deleted", "id": int(gpid)})
         finally:
             conn.close()
 
