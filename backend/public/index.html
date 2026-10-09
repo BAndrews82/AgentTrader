@@ -149,7 +149,7 @@
         setGoalLoading(true);
         setIsGoalForcing(force);
         try {
-          const url = force ? '/api/agents/recommend_goal?force=true' : '/api/agents/recommend_goal';
+          const url = `/api/agents/recommend_goal?t=${Date.now()}${force ? '&force=true' : ''}`;
           const res = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -157,7 +157,7 @@
               goal_text: gText || goalText,
               risk_tolerance: rTol || riskTolerance,
               horizon: hZon || horizon,
-              force_fresh: force
+              force_fresh: true
             })
           });
           if (res.ok) {
@@ -172,6 +172,7 @@
           setIsGoalForcing(false);
         }
       };
+
 
       const handleAddAllGoalToWatchlist = async () => {
         if (!goalResult || !goalResult.recommended_assets) return;

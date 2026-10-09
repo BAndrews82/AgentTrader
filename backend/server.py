@@ -695,13 +695,16 @@ def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI
     if not api_key:
         return None, None, None
     
-    models = ["gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-pro-latest"]
+    models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": system_instruction}]},
-            "generationConfig": {"responseMimeType": "application/json"}
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.75
+            }
         }
         try:
             st_time = time.time()
@@ -710,13 +713,14 @@ def call_gemini_flash(prompt, system_instruction="You are a Financial Analyst AI
                 data=json.dumps(payload).encode('utf-8'),
                 headers={'Content-Type': 'application/json'}
             )
-            res = urllib.request.urlopen(req, timeout=4)
+            res = urllib.request.urlopen(req, timeout=6)
             lat = round((time.time() - st_time) * 1000, 1)
             data = json.loads(res.read().decode('utf-8'))
             text = data["candidates"][0]["content"]["parts"][0]["text"]
             return json.loads(text), m, lat
         except Exception as e:
             print(f"Gemini API model {m} notice: {e}")
+
     return None, None, None
 
 def call_ollama_qwen(prompt, system_instruction="You are a Financial Analyst AI Agent."):
@@ -870,37 +874,93 @@ GOAL_PORTFOLIO_CACHE = {}
 
 def get_deterministic_goal_assets(goal_text, risk_tolerance):
     gt = goal_text.lower()
+    
     if any(k in gt for k in ["ai", "chip", "semiconductor", "tech", "hardware", "cloud", "software"]):
-        raw_list = [
-            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock", "allocation_percent": 30.0},
-            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust (Nasdaq 100)", "asset_type": "ETF", "allocation_percent": 25.0},
-            {"symbol": "MSFT", "asset_name": "Microsoft Corporation", "asset_type": "Stock", "allocation_percent": 25.0},
-            {"symbol": "AAPL", "asset_name": "Apple Inc.", "asset_type": "Stock", "allocation_percent": 20.0}
+        pool = [
+            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock"},
+            {"symbol": "AMD", "asset_name": "Advanced Micro Devices", "asset_type": "Stock"},
+            {"symbol": "AVGO", "asset_name": "Broadcom Inc.", "asset_type": "Stock"},
+            {"symbol": "TSM", "asset_name": "Taiwan Semiconductor Manufacturing", "asset_type": "Stock"},
+            {"symbol": "MSFT", "asset_name": "Microsoft Corporation", "asset_type": "Stock"},
+            {"symbol": "SMH", "asset_name": "VanEck Semiconductor ETF", "asset_type": "ETF"},
+            {"symbol": "XLK", "asset_name": "Technology Select Sector SPDR ETF", "asset_type": "ETF"},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF"},
+            {"symbol": "PLTR", "asset_name": "Palantir Technologies", "asset_type": "Stock"},
+            {"symbol": "AMZN", "asset_name": "Amazon.com Inc.", "asset_type": "Stock"},
+            {"symbol": "GOOGL", "asset_name": "Alphabet Inc.", "asset_type": "Stock"}
         ]
     elif any(k in gt for k in ["dividend", "income", "yield", "cash", "passive"]):
-        raw_list = [
-            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF", "allocation_percent": 35.0},
-            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF", "allocation_percent": 25.0},
-            {"symbol": "VOO", "asset_name": "Vanguard S&P 500 ETF", "asset_type": "ETF", "allocation_percent": 25.0},
-            {"symbol": "IWM", "asset_name": "iShares Russell 2000 ETF", "asset_type": "ETF", "allocation_percent": 15.0}
+        pool = [
+            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF"},
+            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF"},
+            {"symbol": "VOO", "asset_name": "Vanguard S&P 500 ETF", "asset_type": "ETF"},
+            {"symbol": "O", "asset_name": "Realty Income Corporation", "asset_type": "Stock"},
+            {"symbol": "JNJ", "asset_name": "Johnson & Johnson", "asset_type": "Stock"},
+            {"symbol": "PG", "asset_name": "Procter & Gamble Co.", "asset_type": "Stock"},
+            {"symbol": "KO", "asset_name": "The Coca-Cola Company", "asset_type": "Stock"},
+            {"symbol": "PEP", "asset_name": "PepsiCo, Inc.", "asset_type": "Stock"},
+            {"symbol": "ABBV", "asset_name": "AbbVie Inc.", "asset_type": "Stock"},
+            {"symbol": "VTI", "asset_name": "Vanguard Total Stock Market ETF", "asset_type": "ETF"}
         ]
     elif any(k in gt for k in ["clean", "green", "energy", "ev", "solar", "electric", "climate"]):
-        raw_list = [
-            {"symbol": "TSLA", "asset_name": "Tesla, Inc.", "asset_type": "Stock", "allocation_percent": 30.0},
-            {"symbol": "ICLN", "asset_name": "iShares Global Clean Energy ETF", "asset_type": "ETF", "allocation_percent": 30.0},
-            {"symbol": "RIVN", "asset_name": "Rivian Automotive", "asset_type": "Stock", "allocation_percent": 20.0},
-            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF", "allocation_percent": 20.0}
+        pool = [
+            {"symbol": "TSLA", "asset_name": "Tesla, Inc.", "asset_type": "Stock"},
+            {"symbol": "ICLN", "asset_name": "iShares Global Clean Energy ETF", "asset_type": "ETF"},
+            {"symbol": "ENPH", "asset_name": "Enphase Energy, Inc.", "asset_type": "Stock"},
+            {"symbol": "TAN", "asset_name": "Invesco Solar ETF", "asset_type": "ETF"},
+            {"symbol": "NEE", "asset_name": "NextEra Energy, Inc.", "asset_type": "Stock"},
+            {"symbol": "RIVN", "asset_name": "Rivian Automotive", "asset_type": "Stock"},
+            {"symbol": "F", "asset_name": "Ford Motor Company", "asset_type": "Stock"},
+            {"symbol": "GM", "asset_name": "General Motors Company", "asset_type": "Stock"},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF"}
+        ]
+    elif any(k in gt for k in ["hedge", "inflation", "volatility", "gold", "defensive"]):
+        pool = [
+            {"symbol": "GLD", "asset_name": "SPDR Gold Shares", "asset_type": "ETF"},
+            {"symbol": "XLE", "asset_name": "Energy Select Sector SPDR ETF", "asset_type": "ETF"},
+            {"symbol": "XLP", "asset_name": "Consumer Staples Select Sector ETF", "asset_type": "ETF"},
+            {"symbol": "XLV", "asset_name": "Health Care Select Sector SPDR ETF", "asset_type": "ETF"},
+            {"symbol": "SHY", "asset_name": "iShares 1-3 Year Treasury Bond ETF", "asset_type": "ETF"},
+            {"symbol": "JNJ", "asset_name": "Johnson & Johnson", "asset_type": "Stock"},
+            {"symbol": "WMT", "asset_name": "Walmart Inc.", "asset_type": "Stock"},
+            {"symbol": "PG", "asset_name": "Procter & Gamble Co.", "asset_type": "Stock"}
+        ]
+    elif any(k in gt for k in ["web3", "cloud", "crypto", "cyber", "security"]):
+        pool = [
+            {"symbol": "CRWD", "asset_name": "CrowdStrike Holdings", "asset_type": "Stock"},
+            {"symbol": "NET", "asset_name": "Cloudflare, Inc.", "asset_type": "Stock"},
+            {"symbol": "SNOW", "asset_name": "Snowflake Inc.", "asset_type": "Stock"},
+            {"symbol": "COIN", "asset_name": "Coinbase Global", "asset_type": "Stock"},
+            {"symbol": "MSTR", "asset_name": "MicroStrategy Inc.", "asset_type": "Stock"},
+            {"symbol": "AMZN", "asset_name": "Amazon.com Inc.", "asset_type": "Stock"},
+            {"symbol": "MSFT", "asset_name": "Microsoft Corporation", "asset_type": "Stock"},
+            {"symbol": "SKYY", "asset_name": "First Trust Cloud Computing ETF", "asset_type": "ETF"}
         ]
     else:
-        raw_list = [
-            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF", "allocation_percent": 30.0},
-            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF", "allocation_percent": 30.0},
-            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock", "allocation_percent": 20.0},
-            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF", "allocation_percent": 20.0}
+        pool = [
+            {"symbol": "SPY", "asset_name": "SPDR S&P 500 ETF Trust", "asset_type": "ETF"},
+            {"symbol": "QQQ", "asset_name": "Invesco QQQ Trust", "asset_type": "ETF"},
+            {"symbol": "NVDA", "asset_name": "NVIDIA Corporation", "asset_type": "Stock"},
+            {"symbol": "SCHD", "asset_name": "Schwab U.S. Dividend Equity ETF", "asset_type": "ETF"},
+            {"symbol": "MSFT", "asset_name": "Microsoft Corporation", "asset_type": "Stock"},
+            {"symbol": "AAPL", "asset_name": "Apple Inc.", "asset_type": "Stock"},
+            {"symbol": "AMZN", "asset_name": "Amazon.com Inc.", "asset_type": "Stock"},
+            {"symbol": "VOO", "asset_name": "Vanguard S&P 500 ETF", "asset_type": "ETF"}
         ]
 
+    # Randomly select 4 distinct items from the pool
+    sample_size = min(4, len(pool))
+    selected = random.sample(pool, sample_size)
+    
+    weights = random.choice([
+        [30.0, 25.0, 25.0, 20.0],
+        [35.0, 25.0, 20.0, 20.0],
+        [40.0, 30.0, 15.0, 15.0],
+        [25.0, 25.0, 25.0, 25.0]
+    ])
+
     assets = []
-    for item in raw_list:
+    for idx, item in enumerate(selected):
         sym = item["symbol"]
         q = get_quote(sym)
         c = get_candles(sym, 30)
@@ -913,11 +973,11 @@ def get_deterministic_goal_assets(goal_text, risk_tolerance):
             "symbol": sym,
             "asset_name": item["asset_name"],
             "asset_type": item["asset_type"],
-            "allocation_percent": item["allocation_percent"],
+            "allocation_percent": weights[idx],
             "current_price": q["current_price"],
             "percent_change": q["percent_change"],
             "consensus_action": action,
-            "consensus_confidence": round(ind["score"] + 15.0, 1),
+            "consensus_confidence": round(min(95.0, ind["score"] + random.uniform(5.0, 15.0)), 1),
             "technical_reasoning": f"Indicator suite score {ind['score']}/100. RSI at {ind['rsi']}, VWAP at ${ind['vwap']}.",
             "sentiment_reasoning": f"Volume activity robust with intraday movement of {q['percent_change']}%. Momentum supports thesis.",
             "risk_reasoning": f"Volatility managed under {risk_tolerance} parameters. 5% trailing stop recommended.",
@@ -930,9 +990,10 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
     cache_key = f"{goal_clean.lower()}_{risk_tolerance.lower()}_{horizon.lower()}"
     now_ts = time.time()
 
+    # Short cache TTL of 5 seconds to prevent stale repetition while protecting against double clicks
     if not force_fresh and cache_key in GOAL_PORTFOLIO_CACHE:
         cached_ts, cached_res = GOAL_PORTFOLIO_CACHE[cache_key]
-        if now_ts - cached_ts < 60:
+        if now_ts - cached_ts < 5:
             res_copy = dict(cached_res)
             res_copy["is_cached"] = True
             res_copy["cache_age_seconds"] = round(now_ts - cached_ts, 1)
@@ -940,13 +1001,16 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
             return res_copy
 
     start_time = time.time()
+    rand_token = random.randint(1000, 9999)
 
     prompt = f"""
     The user wants an investment portfolio based on this goal/thesis: '{goal_clean}'.
     User Profile: Risk Tolerance = '{risk_tolerance}', Investment Horizon = '{horizon}'.
+    Session Context Variation Token: {rand_token}
     
     Act as a Multi-Agent Investment Committee (Technical Analyst, Sentiment Analyst, Risk Manager).
-    Select 4 to 6 top relevant U.S. stocks and ETFs matching this goal.
+    Select 4 to 6 top relevant U.S. stocks and ETFs matching this specific goal.
+    CRITICAL: Ensure a fresh, high-conviction, and diverse mix of relevant equities and sector ETFs matching this thesis.
     Assign allocation percentages that sum to EXACTLY 100%.
     
     Output JSON object with exact keys:
@@ -965,6 +1029,7 @@ def recommend_goal_portfolio(goal_text, risk_tolerance="Moderate", horizon="Medi
         "is_vetoed": boolean,
     "risk_summary": string
     """
+
 
     ai_out, model_used, api_latency = call_gemini_flash(prompt, "You are a Senior Multi-Agent Asset Allocator & Portfolio Architect.")
     if not ai_out:
